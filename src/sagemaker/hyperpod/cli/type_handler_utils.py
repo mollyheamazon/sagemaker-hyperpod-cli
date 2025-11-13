@@ -50,6 +50,30 @@ def to_click_type(field_type):
         return str
 
 
+def is_undefined_value(value):
+    """Check if value is None or PydanticUndefinedType"""
+    return value is None or str(type(value)) == "<class 'pydantic_core._pydantic_core.PydanticUndefinedType'>"
+
+
+def create_click_option(flag_name, field_type, required, default, description):
+    """Create a Click option from field information"""
+    click_type = to_click_type(field_type)
+    opt_name = f"--{flag_name}"
+    
+    # Handle PydanticUndefinedType defaults
+    if is_undefined_value(default):
+        default = None
+    
+    return click.Option(
+        [opt_name],
+        type=click_type,
+        required=required,
+        default=default,
+        help=description,
+        show_default=True
+    )
+
+
 def is_complex_type(field_type):
     """Check if field type needs JSON parsing"""
     origin = get_origin(field_type)

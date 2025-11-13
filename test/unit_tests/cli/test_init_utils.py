@@ -169,8 +169,7 @@ class TestSaveConfigYaml:
         written_calls = mock_file().write.call_args_list
         written_content = ''.join(call[0][0] for call in written_calls)
         
-        assert '# Template type' in written_content
-        assert 'template: hyp-cluster-stack' in written_content
+        assert '# template: hyp-cluster-stack' in written_content
         assert '# [Required] Kubernetes namespace' in written_content
         assert 'namespace: test-namespace' in written_content
         

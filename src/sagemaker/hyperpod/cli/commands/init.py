@@ -1,10 +1,10 @@
 import click
 import yaml
 import sys
+import shutil
 from pathlib import Path
 from datetime import datetime
 from jinja2 import Template
-import shutil
 from sagemaker.hyperpod.cli.constants.init_constants import (
     USAGE_GUIDE_TEXT_CFN,
     USAGE_GUIDE_TEXT_CRD,
@@ -24,23 +24,32 @@ from sagemaker.hyperpod.cli.init_utils import (
     build_config_from_schema,
     save_template,
     get_default_version_for_template,
-    create_from_k8s_yaml
+    create_from_k8s_yaml,
+    is_dynamic_template
 )
 from sagemaker.hyperpod.common.utils import get_aws_default_region
 from sagemaker.hyperpod.common.telemetry.telemetry_logging import (
     _hyperpod_telemetry_emitter,
 )
 from sagemaker.hyperpod.common.telemetry.constants import Feature
+from sagemaker.hyperpod.cli.commands.training_fine_tuning import _init_fine_tuning_job, _configure_dynamic_template, _validate_dynamic_template, _create_dynamic_template, _generate_dynamic_config_yaml
+
 
 @click.command("init")
-@click.argument("template", type=click.Choice(list(TEMPLATES.keys())))
+@click.argument("template", type=click.Choice(list(TEMPLATES.keys()) + ["fine-tuning-job"]))
 @click.argument("directory", type=click.Path(file_okay=False), default=".")
 @click.option("--version", "-v", default=None, help="Schema version")
+@click.option("--model-name", help="Model name from SageMaker Public Hub (for fine-tuning-job)")
+@click.option("--technique", help="Customization technique (for fine-tuning-job)")
+@click.option("--instance-type", help="Instance type (for fine-tuning-job)")
 @_hyperpod_telemetry_emitter(Feature.HYPERPOD_CLI, "init_template_cli")
 def init(
     template: str,
     directory: str,
     version: str,
+    model_name: str,
+    technique: str,
+    instance_type: str,
 ):
     """
     Initialize a TEMPLATE scaffold in DIRECTORY.
@@ -57,6 +66,7 @@ def init(
     The generated files provide a starting point for configuring and submitting
     jobs to SageMaker HyperPod clusters orchestrated by Amazon EKS.
     """
+    # Original template initialization logic
     dir_path = Path(directory).resolve()
     config_file = dir_path / "config.yaml"
     skip_readme = False
@@ -65,8 +75,8 @@ def init(
     try:
         if config_file.is_file():
             try:
-                existing = yaml.safe_load(config_file.read_text()) or {}
-                existing_template = existing.get("template")
+                # Use load_config to properly read commented template
+                _, existing_template, _ = load_config(dir_path)
             except Exception as e:
                 click.echo("Could not parse existing config.yaml: %s", e)
                 existing_template = None
@@ -99,6 +109,17 @@ def init(
     except Exception as e:
         click.secho(f"❌  Could not create directory {dir_path}: {e}", fg="red")
         sys.exit(1)
+
+    # Handle fine-tuning-job template after validation
+    if template == "fine-tuning-job":
+        if not model_name or not technique or not instance_type:
+            click.secho("❌ --model-name, --technique, and --instance-type are required for fine-tuning-job", fg="red")
+            return
+        
+        if _init_fine_tuning_job(directory, model_name, technique, instance_type):
+            click.secho("✔️ Fine-tuning job initialized successfully", fg="green")
+            click.secho("📄 Created: config.yaml, k8s.jinja", fg="green")
+        return
 
     # 3) Build config dict + comment map, then write config.yaml
     try:
@@ -162,9 +183,19 @@ def reset():
     # 1) Load and validate config
     data, template, version = load_config(dir_path)
     
-    # 2) Build config with default values from schema
+    # 2) Check if this is a dynamic template
+    if is_dynamic_template(template, dir_path):
+        # For dynamic templates, reset using the helper function
+        try:
+            _generate_dynamic_config_yaml(dir_path, template, version)
+            click.secho("✔️ config.yaml reset: all fields set to default values.", fg="green")
+        except Exception as e:
+            click.secho(f"💥 Could not reset config.yaml: {e}", fg="red")
+            sys.exit(1)
+        return
+    
+    # 3) Standard template reset logic
     full_cfg, comment_map = build_config_from_schema(template, version)
-    # 3) Overwrite config.yaml
     try:
         save_config_yaml(
             prefill=full_cfg,
@@ -185,7 +216,7 @@ def reset():
 @generate_click_command()
 @click.pass_context
 @_hyperpod_telemetry_emitter(Feature.HYPERPOD_CLI, "init_configure_cli")
-def configure(ctx, model_config):
+def configure(ctx, option, value, model_config):
     """
     Update any subset of fields in ./config.yaml by passing --<field> flags.
     
@@ -201,16 +232,27 @@ def configure(ctx, model_config):
         
         # Update multiple fields at once
         hyp configure --stack-name my-stack  --create-fsx-stack: False
-        
+
         # Update complex fields with JSON object
         hyp configure --availability-zone-ids '["id1", "id2"]'
-    
     """
     # 1) Load existing config without validation
     dir_path = Path(".").resolve()
     data, template, version = load_config(dir_path)
     
-    # 2) Determine which fields the user actually provided
+    # 2) Check if this is a dynamic template (fine-tuning)
+    if is_dynamic_template(template, dir_path):
+        # Handle fine-tuning configure logic
+        _configure_dynamic_template(ctx, option, value, dir_path)
+        return
+    
+    # 3) Handle standard template configure logic
+    _configure_standard_template(ctx, model_config, dir_path, data, template, version)
+
+
+def _configure_standard_template(ctx, model_config, dir_path, data, template, version):
+    """Handle configure for standard templates"""
+    # Determine which fields the user actually provided
     # Use Click's parameter source tracking to identify command-line provided parameters
     user_input_fields = set()
     
@@ -223,10 +265,10 @@ def configure(ctx, model_config):
                 user_input_fields.add(param_name)
     
     if not user_input_fields:
-        click.secho("⚠️  No arguments provided to configure.", fg="yellow")
-        return
+        click.echo(ctx.get_help())
+        ctx.exit(0)
 
-    # 3) Build merged config with user input
+    # Build merged config with user input
     full_cfg, comment_map = build_config_from_schema(
         template=template,
         version=version,
@@ -235,7 +277,7 @@ def configure(ctx, model_config):
         user_provided_fields=user_input_fields
     )
 
-    # 4) Validate the merged config, but only check user-provided fields
+    # Validate the merged config, but only check user-provided fields
     all_validation_errors = validate_config_against_model(full_cfg, template, version)
     user_input_errors = filter_validation_errors_for_user_input(all_validation_errors, user_input_fields)
     
@@ -249,7 +291,7 @@ def configure(ctx, model_config):
         click.secho("❌  config.yaml was not updated due to invalid input.", fg="red")
         sys.exit(1)
 
-    # 5) Write out the updated config.yaml (only if user input is valid)
+    # Write out the updated config.yaml (only if user input is valid)
     try:
         save_config_yaml(
             prefill=full_cfg,
@@ -268,7 +310,26 @@ def validate():
     Validate this directory's config.yaml against the appropriate schema.
     """
     dir_path = Path(".").resolve()
-    load_config_and_validate(dir_path)
+    
+    try:
+        # Load config to determine template type
+        data, template, version = load_config(dir_path)
+        
+        # Check if this is a dynamic template
+        if is_dynamic_template(template, dir_path):
+            # Validate dynamic template
+            _validate_dynamic_template(dir_path)
+            click.secho("✔️ Configuration validated successfully", fg="green")
+        else:
+            # Use standard validation
+            load_config_and_validate(dir_path)
+            click.secho("✔️ Configuration validated successfully", fg="green")
+    except (FileNotFoundError, ValueError) as e:
+        click.secho(f"❌ {e}", fg="red")
+        sys.exit(1)
+    except Exception as e:
+        click.secho(f"❌ Validation failed: {e}", fg="red")
+        sys.exit(1)
 
 
 @click.command(name="_default_create")
@@ -310,6 +371,17 @@ def _default_create(region, template_version, debug):
     # 1) Load config to determine template type
     data, template, version = load_config_and_validate(dir_path)
     
+    # Check if this is a dynamic template (fine-tuning)
+    if is_dynamic_template(template, dir_path):
+        _create_dynamic_template(dir_path, data)
+        return
+    
+    # Handle standard templates (existing logic)
+    _create_standard_template(dir_path, data, template, version, region, template_version)
+
+
+def _create_standard_template(dir_path: Path, data: dict, template: str, version: str, region: str, template_version: int):
+    """Handle create for standard templates"""
     # Check if region flag is used for non-cluster-stack templates
     if region and template != "cluster-stack":
         click.secho(f"❌  --region flag is only available for cluster-stack template, not for {template}.", fg="red")
@@ -324,6 +396,7 @@ def _default_create(region, template_version, debug):
         jinja_file = dir_path / 'k8s.jinja'
 
     # 3) Ensure files exist
+    config_file = dir_path / 'config.yaml'
     if not config_file.is_file() or not jinja_file.is_file():
         click.secho(f"❌  Missing config.yaml or {jinja_file.name}. Run `hyp init` first.", fg="red")
         sys.exit(1)
@@ -386,7 +459,6 @@ def _default_create(region, template_version, debug):
                 # Create from k8s.yaml
                 k8s_file = out_dir / 'k8s.yaml'
                 create_from_k8s_yaml(str(k8s_file), debug=debug)
-
 
     except Exception as e:
         click.secho(f"❌  Failed to submit the command: {e}", fg="red")

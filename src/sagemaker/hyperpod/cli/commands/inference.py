@@ -134,7 +134,7 @@ def js_list(
     namespace: Optional[str],
 ):
     """
-    List all Hyperpod Jumpstart model endpoints.
+    List all HyperPod Jumpstart model endpoints.
     """
     endpoints = HPJumpStartEndpoint.model_construct().list(namespace)
     data = [ep.model_dump() for ep in endpoints]
@@ -177,7 +177,7 @@ def custom_list(
     namespace: Optional[str],
 ):
     """
-    List all Hyperpod custom model endpoints.
+    List all HyperPod custom model endpoints.
     """
     endpoints = HPEndpoint.model_construct().list(namespace)
     data = [ep.model_dump() for ep in endpoints]
@@ -236,7 +236,7 @@ def js_describe(
     full: bool
 ):
     """
-    Describe a Hyperpod Jumpstart model endpoint.
+    Describe a HyperPod Jumpstart model endpoint.
     """
     my_endpoint = HPJumpStartEndpoint.model_construct().get(name, namespace)
     data = my_endpoint.model_dump()
@@ -385,7 +385,7 @@ def custom_describe(
     full: bool
 ):
     """
-    Describe a Hyperpod custom model endpoint.
+    Describe a HyperPod custom model endpoint.
     """
     my_endpoint = HPEndpoint.model_construct().get(name, namespace)
     data = my_endpoint.model_dump()

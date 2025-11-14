@@ -62,7 +62,7 @@ from sagemaker.hyperpod.cli.commands.init import (
     configure,
     _default_create
 )
-
+from sagemaker.hyperpod.cli.commands.training_fine_tuning import create_fine_tuning_job_interactive
 
 
 def get_package_version(package_name):
@@ -208,6 +208,7 @@ cli.add_command(configure)
 cli.add_command(validate)
 
 create.add_command(pytorch_create)
+create.add_command(create_fine_tuning_job_interactive)
 create.add_command(js_create)
 create.add_command(custom_create)
 

@@ -32,16 +32,17 @@ from sagemaker.hyperpod.common.telemetry.telemetry_logging import (
     _hyperpod_telemetry_emitter,
 )
 from sagemaker.hyperpod.common.telemetry.constants import Feature
-from sagemaker.hyperpod.cli.commands.training_fine_tuning import _init_fine_tuning_job, _configure_dynamic_template, _validate_dynamic_template, _create_dynamic_template, _generate_dynamic_config_yaml
+from sagemaker.hyperpod.cli.commands.training_fine_tuning import _init_training_job, _configure_dynamic_template, _validate_dynamic_template, _create_dynamic_template, _generate_dynamic_config_yaml
 
 
 @click.command("init")
-@click.argument("template", type=click.Choice(list(TEMPLATES.keys()) + ["fine-tuning-job"]))
+@click.argument("template", type=click.Choice(list(TEMPLATES.keys()) + ["fine-tuning-job", "pre-training-job", "evaluation-job"]))
 @click.argument("directory", type=click.Path(file_okay=False), default=".")
 @click.option("--version", "-v", default=None, help="Schema version")
-@click.option("--model-name", help="Model name from SageMaker Public Hub (for fine-tuning-job)")
-@click.option("--technique", help="Customization technique (for fine-tuning-job)")
-@click.option("--instance-type", help="Instance type (for fine-tuning-job)")
+@click.option("--model-name", help="Model name from SageMaker Public Hub (for training/evaluation jobs)")
+@click.option("--technique", help="Customization technique (for fine-tuning-job only)")
+@click.option("--instance-type", help="Instance type (optional - if not provided, interactive cluster selection will be used)")
+@click.option("--framework", type=click.Choice(['CHECKPOINTLESS', 'NOVA', 'VERL', 'LLMFT'], case_sensitive=False), help="Framework type (optional for all job types)")
 @_hyperpod_telemetry_emitter(Feature.HYPERPOD_CLI, "init_template_cli")
 def init(
     template: str,
@@ -50,6 +51,7 @@ def init(
     model_name: str,
     technique: str,
     instance_type: str,
+    framework: str,
 ):
     """
     Initialize a TEMPLATE scaffold in DIRECTORY.
@@ -110,14 +112,19 @@ def init(
         click.secho(f"❌  Could not create directory {dir_path}: {e}", fg="red")
         sys.exit(1)
 
-    # Handle fine-tuning-job template after validation
-    if template == "fine-tuning-job":
-        if not model_name or not technique or not instance_type:
-            click.secho("❌ --model-name, --technique, and --instance-type are required for fine-tuning-job", fg="red")
+    # Handle dynamic job templates after validation
+    if template in ["fine-tuning-job", "pre-training-job", "evaluation-job"]:
+        if not model_name:
+            click.secho(f"❌ --model-name is required for {template}", fg="red")
             return
         
-        if _init_fine_tuning_job(directory, model_name, technique, instance_type):
-            click.secho("✔️ Fine-tuning job initialized successfully", fg="green")
+        # Only fine-tuning-job requires technique
+        if template == "fine-tuning-job" and not technique:
+            click.secho("❌ --technique is required for fine-tuning-job", fg="red")
+            return
+        
+        if _init_training_job(directory, template, model_name, technique, instance_type, framework):
+            click.secho(f"✔️ {template.replace('-', ' ').title()} initialized successfully", fg="green")
             click.secho("📄 Created: config.yaml, k8s.jinja", fg="green")
         return
 

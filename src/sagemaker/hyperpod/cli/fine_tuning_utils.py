@@ -13,7 +13,7 @@ from sagemaker.hyperpod.cli.init_utils import load_dynamic_schema
 from sagemaker.hyperpod.cli.type_handler_utils import is_undefined_value
 
 
-def _fetch_recipe_from_hub(sagemaker_client, model_name: str, technique: str, instance_type: str) -> Dict[str, Any]:
+def _fetch_recipe_from_hub(sagemaker_client, model_name: str, job_type: str, technique: str = None, instance_type: str = None, framework: str = None) -> Dict[str, Any]:
     """Fetch and validate recipe from SageMaker Hub."""
     request = {
         "HubName": "SageMakerPublicHub",
@@ -25,24 +25,56 @@ def _fetch_recipe_from_hub(sagemaker_client, model_name: str, technique: str, in
     hub_content_doc = json.loads(describe_response.get('HubContentDocument', '{}'))
     recipe_collection = hub_content_doc.get('RecipeCollection', [])
     
-    # Find all recipes matching the technique
+    # Map job types to recipe types
+    job_type_mapping = {
+        "fine-tuning-job": "FineTuning",
+        "pre-training-job": "PreTraining", 
+        "evaluation-job": "Evaluation"
+    }
+    
+    recipe_type = job_type_mapping.get(job_type)
+    if not recipe_type:
+        raise ValueError(f"Unsupported job type: {job_type}")
+    
+    # Find recipes matching the job type
     matching_recipes = [recipe for recipe in recipe_collection 
-                       if recipe.get('CustomizationTechnique') == technique]
+                       if recipe.get('Type') == recipe_type]
+    
+    # For fine-tuning jobs, also filter by technique
+    if job_type == "fine-tuning-job" and technique:
+        matching_recipes = [recipe for recipe in matching_recipes
+                           if recipe.get('CustomizationTechnique') == technique]
+        
+        if not matching_recipes:
+            raise ValueError(f"No recipe found for technique: {technique}")
+    
+    # Filter by framework if requested
+    if framework:
+        framework_upper = framework.upper()
+        matching_recipes = [recipe for recipe in matching_recipes
+                           if recipe.get('Framework') == framework_upper]
+        
+        if not matching_recipes:
+            raise ValueError(f"No {framework_upper} recipe found for job type: {job_type}")
     
     if not matching_recipes:
-        raise ValueError(f"No recipe found for technique: {technique}")
+        raise ValueError(f"No recipe found for job type: {job_type}")
     
-    # Find recipe that supports the instance type
-    for recipe in matching_recipes:
-        if instance_type in recipe.get('SupportedInstanceTypes', []):
-            return recipe
+    # If instance type is provided, find recipe that supports it
+    if instance_type:
+        for recipe in matching_recipes:
+            if instance_type in recipe.get('SupportedInstanceTypes', []):
+                return recipe
+        
+        # If no recipe supports the instance type, collect all supported types
+        all_supported = set()
+        for recipe in matching_recipes:
+            all_supported.update(recipe.get('SupportedInstanceTypes', []))
+        
+        raise ValueError(f"Instance type {instance_type} not supported. Supported: {sorted(all_supported)}")
     
-    # If no recipe supports the instance type, collect all supported types
-    all_supported = set()
-    for recipe in matching_recipes:
-        all_supported.update(recipe.get('SupportedInstanceTypes', []))
-    
-    raise ValueError(f"Instance type {instance_type} not supported. Supported: {sorted(all_supported)}")
+    # Return first matching recipe if no instance type specified
+    return matching_recipes[0]
 
 
 def _download_s3_content(s3_client, s3_uri: str) -> str:
@@ -220,7 +252,7 @@ def _get_sagemaker_client():
     if _sagemaker_client is None:
         _sagemaker_client = boto3.client(
             "sagemaker",
-            endpoint_url="https://sagemaker.gamma.us-west-2.ml-platform.aws.a2z.com"
+            endpoint_url="https://sagemaker.beta.us-west-2.ml-platform.aws.a2z.com"
         )
     return _sagemaker_client
 
@@ -334,6 +366,10 @@ def _generate_dynamic_config_yaml(dir_path: Path, template: str, version: str = 
             max_val = param_spec.get('max')
             description = param_spec.get('description', '')
             required = param_spec.get('required', False)
+            
+            # Override instance_type field with user input if provided
+            if key == 'instance_type' and existing_instance_type:
+                default_value = existing_instance_type
             
             if description:
                 f.write(f"# {description}\n")

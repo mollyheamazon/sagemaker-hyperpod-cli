@@ -19,20 +19,146 @@ from sagemaker.hyperpod.cli.fine_tuning_utils import (
     _get_s3_client, _get_k8s_custom_client, _validate_dynamic_template,
     _generate_dynamic_config_yaml, _update_config_field
 )
+from sagemaker.hyperpod.cli.commands.cluster import list_cluster
 import shutil
 from sagemaker.hyperpod.common.telemetry.constants import Feature
 from sagemaker.hyperpod.common.telemetry.telemetry_logging import _hyperpod_telemetry_emitter
 from sagemaker.hyperpod.common.cli_decorators import handle_cli_exceptions
 
 
-def _init_fine_tuning_job(directory: str, model_name: str, technique: str, instance_type: str) -> bool:
-    """Initialize fine-tuning job configuration."""
+def _interactive_cluster_selection(sagemaker_client, model_name: str, job_type: str, technique: str = None, framework: str = None):
+    """Interactive cluster and instance type selection."""
+    try:
+        # First get the recipe to find supported instance types
+        matching_recipe = _fetch_recipe_from_hub(sagemaker_client, model_name, job_type, technique, None, framework)
+        supported_instance_types = set(matching_recipe.get('SupportedInstanceTypes', []))
+        
+        if not supported_instance_types:
+            click.secho("❌ No supported instance types found in recipe", fg="red")
+            return None, None
+        
+        # Get clusters using core components from list_cluster
+        click.secho("🔍 Fetching available clusters...", fg="blue")
+        
+        try:
+            # Import required components
+            import boto3
+            import botocore.config
+            from sagemaker.hyperpod.cli.commands.cluster import _get_hyperpod_clusters
+            from sagemaker.hyperpod.common.telemetry.user_agent import get_user_agent_extra_suffix
+            from sagemaker.hyperpod.cli.utils import get_sagemaker_client
+            
+            # Setup session and client (similar to list_cluster)
+            botocore_config = botocore.config.Config(
+                user_agent_extra=get_user_agent_extra_suffix()
+            )
+            session = boto3.Session()
+            sm_client = get_sagemaker_client(session, botocore_config)
+            
+            # Get cluster names
+            cluster_names = _get_hyperpod_clusters(sm_client)
+            
+            if not cluster_names:
+                click.secho("❌ No HyperPod clusters found", fg="red")
+                return None, None
+            
+            # Query actual cluster details
+            clusters_data = []
+            for cluster_name in cluster_names:
+                try:
+                    # Get cluster details
+                    cluster_response = sm_client.describe_cluster(ClusterName=cluster_name)
+                    instance_groups = cluster_response.get('InstanceGroups', [])
+                    
+                    # Extract instance type and count from first instance group
+                    if instance_groups:
+                        first_group = instance_groups[0]
+                        instance_type = first_group.get('InstanceType', 'Unknown')
+                        current_count = first_group.get('CurrentCount', 0)
+                        
+                        clusters_data.append({
+                            'Cluster': cluster_name,
+                            'InstanceType': instance_type,
+                            'TotalNodes': current_count,
+                            'AcceleratorDevicesAvailable': current_count * 8 if 'g5' in instance_type else 0  # Estimate GPUs
+                        })
+                    
+                except Exception as e:
+                    click.secho(f"⚠️ Warning: Could not get details for cluster {cluster_name}: {e}", fg="yellow")
+                    continue
+            
+            if not clusters_data:
+                click.secho("❌ No cluster details could be retrieved", fg="red")
+                return None, None
+                
+            click.secho(f"✔️ Found {len(clusters_data)} clusters with details", fg="green")
+            
+        except Exception as e:
+            click.secho(f"❌ Error fetching clusters: {e}", fg="red")
+            return None, None
+        
+        # Filter clusters that have supported instance types
+        compatible_clusters = []
+        for cluster in clusters_data:
+            cluster_instance_type = cluster.get('InstanceType')
+            if cluster_instance_type in supported_instance_types:
+                compatible_clusters.append({
+                    'name': cluster.get('Cluster'),
+                    'instance_type': cluster_instance_type,
+                    'total_nodes': cluster.get('TotalNodes', 0),
+                    'available_devices': cluster.get('AcceleratorDevicesAvailable', 0)
+                })
+        
+        if not compatible_clusters:
+            click.secho("❌ No compatible clusters found with supported instance types", fg="red")
+            click.secho(f"Supported instance types: {sorted(supported_instance_types)}", fg="yellow")
+            return None, None
+        
+        # Display compatible clusters
+        click.secho("\n📋 Compatible clusters found:", fg="green")
+        click.secho("-" * 80, fg="blue")
+        for i, cluster in enumerate(compatible_clusters, 1):
+            click.secho(f"{i}. Cluster: {cluster['name']}", fg="cyan")
+            click.secho(f"   Instance Type: {cluster['instance_type']}", fg="white")
+            click.secho(f"   Total Nodes: {cluster['total_nodes']}", fg="white")
+            click.secho(f"   Available Devices: {cluster['available_devices']}", fg="white")
+            click.secho("")
+        
+        # Get user selection
+        while True:
+            try:
+                choice = click.prompt(f"Select a cluster (1-{len(compatible_clusters)})", type=int)
+                if 1 <= choice <= len(compatible_clusters):
+                    selected_cluster = compatible_clusters[choice - 1]
+                    click.secho(f"✔️ Selected cluster: {selected_cluster['name']} with instance type: {selected_cluster['instance_type']}", fg="green")
+                    return selected_cluster['name'], selected_cluster['instance_type']
+                else:
+                    click.secho(f"❌ Please enter a number between 1 and {len(compatible_clusters)}", fg="red")
+            except (ValueError, click.Abort):
+                click.secho("❌ Operation cancelled", fg="red")
+                return None, None
+                
+    except Exception as e:
+        click.secho(f"❌ Error during cluster selection: {e}", fg="red")
+        return None, None
+
+
+def _init_training_job(directory: str, job_type: str, model_name: str, technique: str, instance_type: str = None, framework: str = None) -> bool:
+    """Initialize training job configuration."""
     try:
         sagemaker_client = _get_sagemaker_client()
         s3_client = _get_s3_client()
         
+        # If instance_type not provided, use interactive selection
+        if not instance_type:
+            cluster_name, instance_type = _interactive_cluster_selection(
+                sagemaker_client, model_name, job_type, technique, framework
+            )
+            if not instance_type:
+                return False
+        
         # Fetch and validate recipe
-        matching_recipe = _fetch_recipe_from_hub(sagemaker_client, model_name, technique, instance_type)
+        matching_recipe = _fetch_recipe_from_hub(sagemaker_client, model_name, job_type, technique, instance_type, framework)
         
         override_params_uri = matching_recipe.get('HpEksOverrideParamsS3Uri')
         k8s_template_uri = matching_recipe.get('HpEksPayloadTemplateS3Uri')
@@ -51,7 +177,7 @@ def _init_fine_tuning_job(directory: str, model_name: str, technique: str, insta
             json.dump(override_data, f, indent=2)
         
         # Create config.yaml
-        _generate_dynamic_config_yaml(dir_path, "fine-tuning-job", model_name=model_name, technique=technique, instance_type=instance_type)
+        _generate_dynamic_config_yaml(dir_path, job_type, model_name=model_name, technique=technique, instance_type=instance_type)
         
         # Download and save k8s template
         k8s_content = _download_s3_content(s3_client, k8s_template_uri)
@@ -170,64 +296,64 @@ def _create_dynamic_template(dir_path: Path, config_data: dict):
         sys.exit(1)
 
 
-@click.command("fine-tuning-job")
-@click.option("--model-name", help="Model name from SageMaker Public Hub [required]")
-@click.option("--technique", help="Customization technique [required]")
-@click.option("--instance-type", help="Instance type [required]")
-@_hyperpod_telemetry_emitter(Feature.HYPERPOD_CLI, "create_finetuningjob_cli")
-@handle_cli_exceptions()
-def create_fine_tuning_job_interactive(model_name: str, technique: str, instance_type: str) -> bool:
-    """Create a fine-tuning job from recipes with interactive session"""
-    if not model_name or not technique or not instance_type:
-        click.secho("❌ --model-name, --technique, and --instance-type are required for fine-tuning-job", fg="red")
-        return False
-    
-    try:
-        sagemaker_client = _get_sagemaker_client()
-        s3_client = _get_s3_client()
-        
-        # Fetch and validate recipe
-        matching_recipe = _fetch_recipe_from_hub(sagemaker_client, model_name, technique, instance_type)
-        
-        # Get override spec from S3
-        override_params_uri = matching_recipe.get('HpEksOverrideParamsS3Uri')
-        if not override_params_uri:
-            click.secho("❌ Missing override params URI", fg="red")
-            return False
-        
-        spec = _download_s3_json(s3_client, override_params_uri)
-        
-        # Interactive configuration
-        click.secho(f"\n🚀 Interactive Fine-Tuning Job Creation", fg="green", bold=True)
-        click.secho(f"Model: {model_name}", fg="blue")
-        click.secho(f"Technique: {technique}", fg="blue") 
-        click.secho(f"Instance Type: {instance_type}", fg="blue")
-        click.secho("\nConfigure the following parameters:\n", fg="yellow")
-        
-        # Collect all parameters interactively
-        config_data = _collect_all_parameters_interactively(spec)
-        
-        # Get k8s template and render
-        k8s_template_uri = matching_recipe.get('HpEksPayloadTemplateS3Uri')
-        if not k8s_template_uri:
-            click.secho("❌ Missing k8s template URI", fg="red")
-            return False
-        
-        k8s_content = _download_s3_content(s3_client, k8s_template_uri)
-        rendered = _render_k8s_template(k8s_content, config_data)
-        
-        # Submit to Kubernetes
-        custom_api = _get_k8s_custom_client()
-        click.secho("🚀 Submitting job to Kubernetes...", fg="yellow")
-        _submit_k8s_resources(custom_api, rendered)
-        
-        click.secho("✅ Fine-tuning job created successfully!", fg="green", bold=True)
-        return True
-        
-    except Exception as e:
-        try:
-            resource_name = config_data.get('name', 'unknown') if 'config_data' in locals() else 'unknown'
-            handle_exception(e, resource_name, 'default')
-        except Exception as handled_e:
-            click.secho(f"❌ {handled_e}", fg="red")
-        return False
+# @click.command("fine-tuning-job")
+# @click.option("--model-name", help="Model name from SageMaker Public Hub [required]")
+# @click.option("--technique", help="Customization technique [required]")
+# @click.option("--instance-type", help="Instance type [required]")
+# @_hyperpod_telemetry_emitter(Feature.HYPERPOD_CLI, "create_finetuningjob_cli")
+# @handle_cli_exceptions()
+# def create_fine_tuning_job_interactive(model_name: str, technique: str, instance_type: str) -> bool:
+#     """Create a fine-tuning job from recipes with interactive session"""
+#     if not model_name or not technique or not instance_type:
+#         click.secho("❌ --model-name, --technique, and --instance-type are required for fine-tuning-job", fg="red")
+#         return False
+#     
+#     try:
+#         sagemaker_client = _get_sagemaker_client()
+#         s3_client = _get_s3_client()
+#         
+#         # Fetch and validate recipe
+#         matching_recipe = _fetch_recipe_from_hub(sagemaker_client, model_name, "fine-tuning-job", technique, instance_type)
+#         
+#         # Get override spec from S3
+#         override_params_uri = matching_recipe.get('HpEksOverrideParamsS3Uri')
+#         if not override_params_uri:
+#             click.secho("❌ Missing override params URI", fg="red")
+#             return False
+#         
+#         spec = _download_s3_json(s3_client, override_params_uri)
+#         
+#         # Interactive configuration
+#         click.secho(f"\n🚀 Interactive Fine-Tuning Job Creation", fg="green", bold=True)
+#         click.secho(f"Model: {model_name}", fg="blue")
+#         click.secho(f"Technique: {technique}", fg="blue") 
+#         click.secho(f"Instance Type: {instance_type}", fg="blue")
+#         click.secho("\nConfigure the following parameters:\n", fg="yellow")
+#         
+#         # Collect all parameters interactively
+#         config_data = _collect_all_parameters_interactively(spec)
+#         
+#         # Get k8s template and render
+#         k8s_template_uri = matching_recipe.get('HpEksPayloadTemplateS3Uri')
+#         if not k8s_template_uri:
+#             click.secho("❌ Missing k8s template URI", fg="red")
+#             return False
+#         
+#         k8s_content = _download_s3_content(s3_client, k8s_template_uri)
+#         rendered = _render_k8s_template(k8s_content, config_data)
+#         
+#         # Submit to Kubernetes
+#         custom_api = _get_k8s_custom_client()
+#         click.secho("🚀 Submitting job to Kubernetes...", fg="yellow")
+#         _submit_k8s_resources(custom_api, rendered)
+#         
+#         click.secho("✅ Fine-tuning job created successfully!", fg="green", bold=True)
+#         return True
+#         
+#     except Exception as e:
+#         try:
+#             resource_name = config_data.get('name', 'unknown') if 'config_data' in locals() else 'unknown'
+#             handle_exception(e, resource_name, 'default')
+#         except Exception as handled_e:
+#             click.secho(f"❌ {handled_e}", fg="red")
+#         return False

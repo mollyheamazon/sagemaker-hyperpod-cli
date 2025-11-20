@@ -26,11 +26,11 @@ from sagemaker.hyperpod.common.telemetry.telemetry_logging import _hyperpod_tele
 from sagemaker.hyperpod.common.cli_decorators import handle_cli_exceptions
 
 
-def _interactive_cluster_selection(sagemaker_client, model_name: str, job_type: str, technique: str = None, framework: str = None):
+def _interactive_cluster_selection(sagemaker_client, model_name: str, job_type: str, technique: str = None):
     """Interactive cluster and instance type selection."""
     try:
         # First get the recipe to find supported instance types
-        matching_recipe = _fetch_recipe_from_hub(sagemaker_client, model_name, job_type, technique, None, framework)
+        matching_recipe = _fetch_recipe_from_hub(sagemaker_client, model_name, job_type, technique, None)
         supported_instance_types = set(matching_recipe.get('SupportedInstanceTypes', []))
         
         if not supported_instance_types:
@@ -143,7 +143,7 @@ def _interactive_cluster_selection(sagemaker_client, model_name: str, job_type: 
         return None, None
 
 
-def _init_training_job(directory: str, job_type: str, model_name: str, technique: str, instance_type: str = None, framework: str = None) -> bool:
+def _init_training_job(directory: str, job_type: str, model_name: str, technique: str, instance_type: str = None) -> bool:
     """Initialize training job configuration."""
     try:
         sagemaker_client = _get_sagemaker_client()
@@ -152,13 +152,13 @@ def _init_training_job(directory: str, job_type: str, model_name: str, technique
         # If instance_type not provided, use interactive selection
         if not instance_type:
             cluster_name, instance_type = _interactive_cluster_selection(
-                sagemaker_client, model_name, job_type, technique, framework
+                sagemaker_client, model_name, job_type, technique
             )
             if not instance_type:
                 return False
         
         # Fetch and validate recipe
-        matching_recipe = _fetch_recipe_from_hub(sagemaker_client, model_name, job_type, technique, instance_type, framework)
+        matching_recipe = _fetch_recipe_from_hub(sagemaker_client, model_name, job_type, technique, instance_type)
         
         override_params_uri = matching_recipe.get('HpEksOverrideParamsS3Uri')
         k8s_template_uri = matching_recipe.get('HpEksPayloadTemplateS3Uri')

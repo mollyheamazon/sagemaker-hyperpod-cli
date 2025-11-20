@@ -13,7 +13,7 @@ from sagemaker.hyperpod.cli.init_utils import load_dynamic_schema
 from sagemaker.hyperpod.cli.type_handler_utils import is_undefined_value
 
 
-def _fetch_recipe_from_hub(sagemaker_client, model_name: str, job_type: str, technique: str = None, instance_type: str = None, framework: str = None) -> Dict[str, Any]:
+def _fetch_recipe_from_hub(sagemaker_client, model_name: str, job_type: str, technique: str = None, instance_type: str = None) -> Dict[str, Any]:
     """Fetch and validate recipe from SageMaker Hub."""
     request = {
         "HubName": "SageMakerPublicHub",
@@ -28,7 +28,6 @@ def _fetch_recipe_from_hub(sagemaker_client, model_name: str, job_type: str, tec
     # Map job types to recipe types
     job_type_mapping = {
         "fine-tuning-job": "FineTuning",
-        "pre-training-job": "PreTraining", 
         "evaluation-job": "Evaluation"
     }
     
@@ -47,15 +46,6 @@ def _fetch_recipe_from_hub(sagemaker_client, model_name: str, job_type: str, tec
         
         if not matching_recipes:
             raise ValueError(f"No recipe found for technique: {technique}")
-    
-    # Filter by framework if requested
-    if framework:
-        framework_upper = framework.upper()
-        matching_recipes = [recipe for recipe in matching_recipes
-                           if recipe.get('Framework') == framework_upper]
-        
-        if not matching_recipes:
-            raise ValueError(f"No {framework_upper} recipe found for job type: {job_type}")
     
     if not matching_recipes:
         raise ValueError(f"No recipe found for job type: {job_type}")

@@ -168,40 +168,6 @@ class TestInitTrainingJob:
             assert Path(temp_dir, "config.yaml").exists()
             assert Path(temp_dir, "k8s.jinja").exists()
 
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._get_sagemaker_client')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._get_s3_client')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning.click.secho')
-    def test_init_pre_training_job_success(self, mock_secho, mock_get_s3_client, mock_get_sagemaker_client):
-        """Test successful pre-training job initialization"""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Mock SageMaker client
-            mock_sagemaker = MagicMock()
-            mock_sagemaker.describe_hub_content.return_value = {
-                'HubContentDocument': json.dumps({
-                    'RecipeCollection': [{
-                        'Type': 'PreTraining',
-                        'SupportedInstanceTypes': ['ml.p4d.24xlarge'],
-                        'HpEksOverrideParamsS3Uri': 's3://bucket/override.json',
-                        'HpEksPayloadTemplateS3Uri': 's3://bucket/template.yaml'
-                    }]
-                })
-            }
-            mock_get_sagemaker_client.return_value = mock_sagemaker
-            
-            # Mock S3 client
-            mock_s3 = MagicMock()
-            mock_s3.get_object.side_effect = [
-                {'Body': MagicMock(read=lambda: json.dumps({"job_name": {"type": "string", "required": True}}).encode())},
-                {'Body': MagicMock(read=lambda: b'apiVersion: v1\nkind: Job')}
-            ]
-            mock_get_s3_client.return_value = mock_s3
-            
-            result = _init_training_job(temp_dir, "pre-training-job", "test-model", None, "ml.p4d.24xlarge")
-            
-            assert result is True
-            assert Path(temp_dir, ".override_spec.json").exists()
-            assert Path(temp_dir, "config.yaml").exists()
-            assert Path(temp_dir, "k8s.jinja").exists()
 
     @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._get_sagemaker_client')
     @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._get_s3_client')
@@ -297,42 +263,6 @@ class TestInitTrainingJob:
             assert result is False
             mock_interactive.assert_called_once()
 
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._get_sagemaker_client')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._get_s3_client')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning.click.secho')
-    def test_init_training_job_framework_support(self, mock_secho, mock_get_s3_client, mock_get_sagemaker_client):
-        """Test training job initialization with framework support"""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Mock SageMaker client
-            mock_sagemaker = MagicMock()
-            mock_sagemaker.describe_hub_content.return_value = {
-                'HubContentDocument': json.dumps({
-                    'RecipeCollection': [{
-                        'Type': 'PreTraining',
-                        'Framework': 'CHECKPOINTLESS',
-                        'SupportedInstanceTypes': ['ml.p4d.24xlarge'],
-                        'HpEksOverrideParamsS3Uri': 's3://bucket/override.json',
-                        'HpEksPayloadTemplateS3Uri': 's3://bucket/template.yaml'
-                    }]
-                })
-            }
-            mock_get_sagemaker_client.return_value = mock_sagemaker
-            
-            # Mock S3 client
-            mock_s3 = MagicMock()
-            mock_s3.get_object.side_effect = [
-                {'Body': MagicMock(read=lambda: json.dumps({"job_name": {"type": "string", "required": True}}).encode())},
-                {'Body': MagicMock(read=lambda: b'apiVersion: v1\nkind: Job')}
-            ]
-            mock_get_s3_client.return_value = mock_s3
-            
-            result = _init_training_job(temp_dir, "pre-training-job", "test-model", None, "ml.p4d.24xlarge", framework="checkpointless")
-            
-            assert result is True
-            assert Path(temp_dir, ".override_spec.json").exists()
-            assert Path(temp_dir, "config.yaml").exists()
-            assert Path(temp_dir, "k8s.jinja").exists()
-
 
 class TestUpdateConfigField:
     """Test cases for _update_config_field function"""
@@ -390,23 +320,6 @@ class TestFetchRecipeFromHub:
         assert result['CustomizationTechnique'] == 'lora'
         assert 'ml.p4d.24xlarge' in result['SupportedInstanceTypes']
 
-    def test_fetch_recipe_pre_training_success(self):
-        """Test fetching pre-training recipe successfully"""
-        mock_client = MagicMock()
-        mock_client.describe_hub_content.return_value = {
-            'HubContentDocument': json.dumps({
-                'RecipeCollection': [{
-                    'Type': 'PreTraining',
-                    'SupportedInstanceTypes': ['ml.p4d.24xlarge']
-                }]
-            })
-        }
-        
-        result = _fetch_recipe_from_hub(mock_client, "test-model", "pre-training-job", None, "ml.p4d.24xlarge")
-        
-        assert result['Type'] == 'PreTraining'
-        assert 'ml.p4d.24xlarge' in result['SupportedInstanceTypes']
-
     def test_fetch_recipe_evaluation_success(self):
         """Test fetching evaluation recipe successfully"""
         mock_client = MagicMock()
@@ -423,152 +336,6 @@ class TestFetchRecipeFromHub:
         
         assert result['Type'] == 'Evaluation'
         assert 'ml.p4d.24xlarge' in result['SupportedInstanceTypes']
-
-    def test_fetch_recipe_framework_support(self):
-        """Test fetching recipe with framework support"""
-        mock_client = MagicMock()
-        mock_client.describe_hub_content.return_value = {
-            'HubContentDocument': json.dumps({
-                'RecipeCollection': [
-                    {
-                        'Type': 'PreTraining',
-                        'Framework': 'Standard',
-                        'SupportedInstanceTypes': ['ml.p4d.24xlarge']
-                    },
-                    {
-                        'Type': 'PreTraining',
-                        'Framework': 'CHECKPOINTLESS',
-                        'SupportedInstanceTypes': ['ml.p4d.24xlarge']
-                    }
-                ]
-            })
-        }
-        
-        result = _fetch_recipe_from_hub(mock_client, "test-model", "pre-training-job", None, "ml.p4d.24xlarge", framework="checkpointless")
-        
-        assert result['Type'] == 'PreTraining'
-        assert result['Framework'] == 'CHECKPOINTLESS'
-
-    def test_fetch_recipe_framework_case_insensitive(self):
-        """Test fetching recipe with case insensitive framework"""
-        mock_client = MagicMock()
-        mock_client.describe_hub_content.return_value = {
-            'HubContentDocument': json.dumps({
-                'RecipeCollection': [{
-                    'Type': 'PreTraining',
-                    'Framework': 'NOVA',
-                    'SupportedInstanceTypes': ['ml.p4d.24xlarge']
-                }]
-            })
-        }
-        
-        result = _fetch_recipe_from_hub(mock_client, "test-model", "pre-training-job", None, "ml.p4d.24xlarge", framework="nova")
-        
-        assert result['Type'] == 'PreTraining'
-        assert result['Framework'] == 'NOVA'
-
-    def test_fetch_recipe_no_framework_match(self):
-        """Test fetching recipe with no framework match"""
-        mock_client = MagicMock()
-        mock_client.describe_hub_content.return_value = {
-            'HubContentDocument': json.dumps({
-                'RecipeCollection': [{
-                    'Type': 'PreTraining',
-                    'Framework': 'Standard',
-                    'SupportedInstanceTypes': ['ml.p4d.24xlarge']
-                }]
-            })
-        }
-        
-        with pytest.raises(ValueError, match="No CHECKPOINTLESS recipe found for job type: pre-training-job"):
-            _fetch_recipe_from_hub(mock_client, "test-model", "pre-training-job", None, "ml.p4d.24xlarge", framework="checkpointless")
-
-    def test_fetch_recipe_without_instance_type(self):
-        """Test fetching recipe without specifying instance type"""
-        mock_client = MagicMock()
-        mock_client.describe_hub_content.return_value = {
-            'HubContentDocument': json.dumps({
-                'RecipeCollection': [{
-                    'Type': 'PreTraining',
-                    'SupportedInstanceTypes': ['ml.p4d.24xlarge']
-                }]
-            })
-        }
-        
-        result = _fetch_recipe_from_hub(mock_client, "test-model", "pre-training-job")
-        
-        assert result['Type'] == 'PreTraining'
-        assert result['SupportedInstanceTypes'] == ['ml.p4d.24xlarge']
-
-    def test_fetch_recipe_multiple_recipes_find_match(self):
-        """Test fetching recipe with multiple recipes, finding correct one"""
-        mock_client = MagicMock()
-        mock_client.describe_hub_content.return_value = {
-            'HubContentDocument': json.dumps({
-                'RecipeCollection': [
-                    {
-                        'Type': 'FineTuning',
-                        'CustomizationTechnique': 'lora',
-                        'SupportedInstanceTypes': ['ml.g5.xlarge']
-                    },
-                    {
-                        'Type': 'FineTuning',
-                        'CustomizationTechnique': 'lora', 
-                        'SupportedInstanceTypes': ['ml.p4d.24xlarge']
-                    }
-                ]
-            })
-        }
-        
-        result = _fetch_recipe_from_hub(mock_client, "test-model", "fine-tuning-job", "lora", "ml.p4d.24xlarge")
-        
-        assert result['Type'] == 'FineTuning'
-        assert result['CustomizationTechnique'] == 'lora'
-        assert result['SupportedInstanceTypes'] == ['ml.p4d.24xlarge']
-
-    def test_fetch_recipe_unsupported_job_type(self):
-        """Test fetching recipe with unsupported job type"""
-        mock_client = MagicMock()
-        mock_client.describe_hub_content.return_value = {
-            'HubContentDocument': json.dumps({
-                'RecipeCollection': []
-            })
-        }
-        
-        with pytest.raises(ValueError, match="Unsupported job type: invalid-job"):
-            _fetch_recipe_from_hub(mock_client, "test-model", "invalid-job")
-
-    def test_fetch_recipe_no_technique_match(self):
-        """Test fetching fine-tuning recipe with no matching technique"""
-        mock_client = MagicMock()
-        mock_client.describe_hub_content.return_value = {
-            'HubContentDocument': json.dumps({
-                'RecipeCollection': [{
-                    'Type': 'FineTuning',
-                    'CustomizationTechnique': 'qlora',
-                    'SupportedInstanceTypes': ['ml.p4d.24xlarge']
-                }]
-            })
-        }
-        
-        with pytest.raises(ValueError, match="No recipe found for technique: lora"):
-            _fetch_recipe_from_hub(mock_client, "test-model", "fine-tuning-job", "lora", "ml.p4d.24xlarge")
-
-    def test_fetch_recipe_no_job_type_match(self):
-        """Test fetching recipe with no matching job type"""
-        mock_client = MagicMock()
-        mock_client.describe_hub_content.return_value = {
-            'HubContentDocument': json.dumps({
-                'RecipeCollection': [{
-                    'Type': 'FineTuning',
-                    'CustomizationTechnique': 'lora',
-                    'SupportedInstanceTypes': ['ml.p4d.24xlarge']
-                }]
-            })
-        }
-        
-        with pytest.raises(ValueError, match="No recipe found for job type: pre-training-job"):
-            _fetch_recipe_from_hub(mock_client, "test-model", "pre-training-job", None, "ml.p4d.24xlarge")
 
 
 
@@ -1140,33 +907,6 @@ class TestHypCliDeleteCommand:
         assert fine_tuning_cmd is not None
         assert "Delete a HyperPod fine-tuning job" in fine_tuning_cmd.help
 
-    def test_pre_training_commands_registration(self):
-        """Test that pre-training commands are properly registered"""
-        from sagemaker.hyperpod.cli.hyp_cli import list, describe, delete, list_pods, get_logs, get_operator_logs
-        
-        # Check list command
-        commands = list.list_commands(None)
-        assert "pre-training-job" in commands
-        
-        # Check describe command
-        commands = describe.list_commands(None)
-        assert "pre-training-job" in commands
-        
-        # Check delete command
-        commands = delete.list_commands(None)
-        assert "pre-training-job" in commands
-        
-        # Check list-pods command
-        commands = list_pods.list_commands(None)
-        assert "pre-training-job" in commands
-        
-        # Check get-logs command
-        commands = get_logs.list_commands(None)
-        assert "pre-training-job" in commands
-        
-        # Check get-operator-logs command
-        commands = get_operator_logs.list_commands(None)
-        assert "pre-training-job" in commands
 
     def test_evaluation_commands_registration(self):
         """Test that evaluation commands are properly registered"""
@@ -1195,25 +935,6 @@ class TestHypCliDeleteCommand:
         # Check get-operator-logs command
         commands = get_operator_logs.list_commands(None)
         assert "evaluation-job" in commands
-
-    def test_pre_training_command_help_texts(self):
-        """Test that pre-training commands have correct help text"""
-        from sagemaker.hyperpod.cli.hyp_cli import list, describe, delete
-        
-        # Check list command help
-        pre_training_list_cmd = list.get_command(None, "pre-training-job")
-        assert pre_training_list_cmd is not None
-        assert "List all HyperPod pre-training jobs" in pre_training_list_cmd.help
-        
-        # Check describe command help
-        pre_training_describe_cmd = describe.get_command(None, "pre-training-job")
-        assert pre_training_describe_cmd is not None
-        assert "Describe a HyperPod pre-training job" in pre_training_describe_cmd.help
-        
-        # Check delete command help
-        pre_training_delete_cmd = delete.get_command(None, "pre-training-job")
-        assert pre_training_delete_cmd is not None
-        assert "Delete a HyperPod pre-training job" in pre_training_delete_cmd.help
 
     def test_evaluation_command_help_texts(self):
         """Test that evaluation commands have correct help text"""

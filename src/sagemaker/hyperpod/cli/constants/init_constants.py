@@ -46,13 +46,6 @@ TEMPLATES = {
         "schema_type": CRD,
         'type': "dynamic"
     },
-    "pre-training-job": {
-        "registry": {},
-        "template_registry": {},
-        "schema_pkg": None,
-        "schema_type": CRD,
-        'type': "dynamic"
-    },
     "evaluation-job": {
         "registry": {},
         "template_registry": {},

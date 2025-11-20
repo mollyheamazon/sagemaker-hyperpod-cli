@@ -36,13 +36,12 @@ from sagemaker.hyperpod.cli.commands.training_fine_tuning import _init_training_
 
 
 @click.command("init")
-@click.argument("template", type=click.Choice(list(TEMPLATES.keys()) + ["fine-tuning-job", "pre-training-job", "evaluation-job"]))
+@click.argument("template", type=click.Choice(list(TEMPLATES.keys()) + ["fine-tuning-job", "evaluation-job"]))
 @click.argument("directory", type=click.Path(file_okay=False), default=".")
 @click.option("--version", "-v", default=None, help="Schema version")
 @click.option("--model-name", help="Model name from SageMaker Public Hub (for training/evaluation jobs)")
 @click.option("--technique", help="Customization technique (for fine-tuning-job only)")
 @click.option("--instance-type", help="Instance type (optional - if not provided, interactive cluster selection will be used)")
-@click.option("--framework", type=click.Choice(['CHECKPOINTLESS', 'NOVA', 'VERL', 'LLMFT'], case_sensitive=False), help="Framework type (optional for all job types)")
 @_hyperpod_telemetry_emitter(Feature.HYPERPOD_CLI, "init_template_cli")
 def init(
     template: str,
@@ -51,7 +50,6 @@ def init(
     model_name: str,
     technique: str,
     instance_type: str,
-    framework: str,
 ):
     """
     Initialize a TEMPLATE scaffold in DIRECTORY.
@@ -113,7 +111,7 @@ def init(
         sys.exit(1)
 
     # Handle dynamic job templates after validation
-    if template in ["fine-tuning-job", "pre-training-job", "evaluation-job"]:
+    if template in ["fine-tuning-job", "evaluation-job"]:
         if not model_name:
             click.secho(f"❌ --model-name is required for {template}", fg="red")
             return
@@ -123,7 +121,7 @@ def init(
             click.secho("❌ --technique is required for fine-tuning-job", fg="red")
             return
         
-        if _init_training_job(directory, template, model_name, technique, instance_type, framework):
+        if _init_training_job(directory, template, model_name, technique, instance_type):
             click.secho(f"✔️ {template.replace('-', ' ').title()} initialized successfully", fg="green")
             click.secho("📄 Created: config.yaml, k8s.jinja", fg="green")
         return

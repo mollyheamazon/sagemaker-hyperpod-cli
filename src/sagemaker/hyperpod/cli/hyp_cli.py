@@ -222,9 +222,6 @@ list.add_command(list_jobs)
 fine_tuning_list_cmd = copy.copy(list_jobs)
 fine_tuning_list_cmd.help = "List all HyperPod fine-tuning jobs"
 list.add_command(fine_tuning_list_cmd, name="fine-tuning-job")
-pre_training_list_cmd = copy.copy(list_jobs)
-pre_training_list_cmd.help = "List all HyperPod pre-training jobs"
-list.add_command(pre_training_list_cmd, name="pre-training-job")
 evaluation_list_cmd = copy.copy(list_jobs)
 evaluation_list_cmd.help = "List all HyperPod evaluation jobs"
 list.add_command(evaluation_list_cmd, name="evaluation-job")
@@ -238,9 +235,6 @@ describe.add_command(pytorch_describe)
 fine_tuning_describe_cmd = copy.copy(pytorch_describe)
 fine_tuning_describe_cmd.help = "Describe a HyperPod fine-tuning job."
 describe.add_command(fine_tuning_describe_cmd, name="fine-tuning-job")
-pre_training_describe_cmd = copy.copy(pytorch_describe)
-pre_training_describe_cmd.help = "Describe a HyperPod pre-training job."
-describe.add_command(pre_training_describe_cmd, name="pre-training-job")
 evaluation_describe_cmd = copy.copy(pytorch_describe)
 evaluation_describe_cmd.help = "Describe a HyperPod evaluation job."
 describe.add_command(evaluation_describe_cmd, name="evaluation-job")
@@ -260,9 +254,6 @@ delete.add_command(pytorch_delete)
 fine_tuning_delete_cmd = copy.copy(pytorch_delete)
 fine_tuning_delete_cmd.help = "Delete a HyperPod fine-tuning job."
 delete.add_command(fine_tuning_delete_cmd, name="fine-tuning-job")
-pre_training_delete_cmd = copy.copy(pytorch_delete)
-pre_training_delete_cmd.help = "Delete a HyperPod pre-training job."
-delete.add_command(pre_training_delete_cmd, name="pre-training-job")
 evaluation_delete_cmd = copy.copy(pytorch_delete)
 evaluation_delete_cmd.help = "Delete a HyperPod evaluation job."
 delete.add_command(evaluation_delete_cmd, name="evaluation-job")
@@ -280,9 +271,6 @@ list_pods.add_command(pytorch_list_pods)
 fine_tuning_list_pods_cmd = copy.copy(pytorch_list_pods)
 fine_tuning_list_pods_cmd.help = "List all HyperPod PyTorch pods related to the fine-tuning job."
 list_pods.add_command(fine_tuning_list_pods_cmd, name="fine-tuning-job")
-pre_training_list_pods_cmd = copy.copy(pytorch_list_pods)
-pre_training_list_pods_cmd.help = "List all HyperPod PyTorch pods related to the pre-training job."
-list_pods.add_command(pre_training_list_pods_cmd, name="pre-training-job")
 evaluation_list_pods_cmd = copy.copy(pytorch_list_pods)
 evaluation_list_pods_cmd.help = "List all HyperPod PyTorch pods related to the evaluation job."
 list_pods.add_command(evaluation_list_pods_cmd, name="evaluation-job")
@@ -293,9 +281,6 @@ get_logs.add_command(pytorch_get_logs)
 fine_tuning_get_logs_cmd = copy.copy(pytorch_get_logs)
 fine_tuning_get_logs_cmd.help = "Get specific pod log for Hyperpod fine-tuning job."
 get_logs.add_command(fine_tuning_get_logs_cmd, name="fine-tuning-job")
-pre_training_get_logs_cmd = copy.copy(pytorch_get_logs)
-pre_training_get_logs_cmd.help = "Get specific pod log for Hyperpod pre-training job."
-get_logs.add_command(pre_training_get_logs_cmd, name="pre-training-job")
 evaluation_get_logs_cmd = copy.copy(pytorch_get_logs)
 evaluation_get_logs_cmd.help = "Get specific pod log for Hyperpod evaluation job."
 get_logs.add_command(evaluation_get_logs_cmd, name="evaluation-job")
@@ -309,9 +294,6 @@ get_operator_logs.add_command(pytorch_get_operator_logs)
 fine_tuning_get_operator_logs_cmd = copy.copy(pytorch_get_operator_logs)
 fine_tuning_get_operator_logs_cmd.help = "Get operator logs for Hyperpod fine-tuning jobs."
 get_operator_logs.add_command(fine_tuning_get_operator_logs_cmd, name="fine-tuning-job")
-pre_training_get_operator_logs_cmd = copy.copy(pytorch_get_operator_logs)
-pre_training_get_operator_logs_cmd.help = "Get operator logs for Hyperpod pre-training jobs."
-get_operator_logs.add_command(pre_training_get_operator_logs_cmd, name="pre-training-job")
 evaluation_get_operator_logs_cmd = copy.copy(pytorch_get_operator_logs)
 evaluation_get_operator_logs_cmd.help = "Get operator logs for Hyperpod evaluation jobs."
 get_operator_logs.add_command(evaluation_get_operator_logs_cmd, name="evaluation-job")

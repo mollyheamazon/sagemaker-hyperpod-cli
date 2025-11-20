@@ -22,14 +22,6 @@ class TestInitTrainingJobCommands:
         assert result.exit_code == 0
         assert 'fine-tuning-job' in result.output
 
-    def test_init_pre_training_job_template_choice(self):
-        """Test that pre-training-job is available as a template choice"""
-        runner = CliRunner()
-        result = runner.invoke(init, ['--help'])
-        
-        assert result.exit_code == 0
-        assert 'pre-training-job' in result.output
-
     def test_init_evaluation_job_template_choice(self):
         """Test that evaluation-job is available as a template choice"""
         runner = CliRunner()
@@ -54,28 +46,10 @@ class TestInitTrainingJobCommands:
             
             assert result.exit_code == 0
             mock_init_training.assert_called_once_with(
-                temp_dir, 'fine-tuning-job', 'test-model', 'lora', 'ml.p4d.24xlarge', None
+                temp_dir, 'fine-tuning-job', 'test-model', 'lora', 'ml.p4d.24xlarge'
             )
             assert "Fine Tuning Job initialized successfully" in result.output
 
-    @patch('sagemaker.hyperpod.cli.commands.init._init_training_job')
-    def test_init_pre_training_job_with_required_params(self, mock_init_training):
-        """Test init pre-training-job with required parameters"""
-        mock_init_training.return_value = True
-        
-        runner = CliRunner()
-        with tempfile.TemporaryDirectory() as temp_dir:
-            result = runner.invoke(init, [
-                'pre-training-job', temp_dir,
-                '--model-name', 'test-model',
-                '--instance-type', 'ml.p4d.24xlarge'
-            ])
-            
-            assert result.exit_code == 0
-            mock_init_training.assert_called_once_with(
-                temp_dir, 'pre-training-job', 'test-model', None, 'ml.p4d.24xlarge', None
-            )
-            assert "Pre Training Job initialized successfully" in result.output
 
     @patch('sagemaker.hyperpod.cli.commands.init._init_training_job')
     def test_init_evaluation_job_with_required_params(self, mock_init_training):
@@ -92,47 +66,10 @@ class TestInitTrainingJobCommands:
             
             assert result.exit_code == 0
             mock_init_training.assert_called_once_with(
-                temp_dir, 'evaluation-job', 'test-model', None, 'ml.p4d.24xlarge', None
+                temp_dir, 'evaluation-job', 'test-model', None, 'ml.p4d.24xlarge'
             )
             assert "Evaluation Job initialized successfully" in result.output
 
-    @patch('sagemaker.hyperpod.cli.commands.init._init_training_job')
-    def test_init_training_job_with_framework_case_insensitive(self, mock_init_training):
-        """Test init training job with case insensitive framework"""
-        mock_init_training.return_value = True
-        
-        runner = CliRunner()
-        with tempfile.TemporaryDirectory() as temp_dir:
-            result = runner.invoke(init, [
-                'pre-training-job', temp_dir,
-                '--model-name', 'test-model',
-                '--instance-type', 'ml.p4d.24xlarge',
-                '--framework', 'Nova'
-            ])
-            
-            assert result.exit_code == 0
-            mock_init_training.assert_called_once_with(
-                temp_dir, 'pre-training-job', 'test-model', None, 'ml.p4d.24xlarge', 'NOVA'
-            )
-
-    @patch('sagemaker.hyperpod.cli.commands.init._init_training_job')
-    def test_init_training_job_with_framework_flag(self, mock_init_training):
-        """Test init training job with framework flag"""
-        mock_init_training.return_value = True
-        
-        runner = CliRunner()
-        with tempfile.TemporaryDirectory() as temp_dir:
-            result = runner.invoke(init, [
-                'pre-training-job', temp_dir,
-                '--model-name', 'test-model',
-                '--instance-type', 'ml.p4d.24xlarge',
-                '--framework', 'checkpointless'
-            ])
-            
-            assert result.exit_code == 0
-            mock_init_training.assert_called_once_with(
-                temp_dir, 'pre-training-job', 'test-model', None, 'ml.p4d.24xlarge', 'CHECKPOINTLESS'
-            )
 
     @patch('sagemaker.hyperpod.cli.commands.init._init_training_job')
     def test_init_training_job_without_instance_type(self, mock_init_training):
@@ -142,13 +79,13 @@ class TestInitTrainingJobCommands:
         runner = CliRunner()
         with tempfile.TemporaryDirectory() as temp_dir:
             result = runner.invoke(init, [
-                'pre-training-job', temp_dir,
+                'evaluation-job', temp_dir,
                 '--model-name', 'test-model'
             ])
             
             assert result.exit_code == 0
             mock_init_training.assert_called_once_with(
-                temp_dir, 'pre-training-job', 'test-model', None, None, None
+                temp_dir, 'evaluation-job', 'test-model', None, None
             )
 
     def test_init_fine_tuning_job_missing_model_name(self):
@@ -176,18 +113,6 @@ class TestInitTrainingJobCommands:
             
             assert result.exit_code == 0
             assert "❌ --technique is required for fine-tuning-job" in result.output
-
-    def test_init_pre_training_job_missing_model_name(self):
-        """Test init pre-training-job without required model-name parameter"""
-        runner = CliRunner()
-        with tempfile.TemporaryDirectory() as temp_dir:
-            result = runner.invoke(init, [
-                'pre-training-job', temp_dir,
-                '--instance-type', 'ml.p4d.24xlarge'
-            ])
-            
-            assert result.exit_code == 0
-            assert "❌ --model-name is required for pre-training-job" in result.output
 
     def test_init_evaluation_job_missing_model_name(self):
         """Test init evaluation-job without required model-name parameter"""
@@ -234,17 +159,6 @@ class TestInitUtilsChanges:
             
             assert is_dynamic_template("fine-tuning-job", temp_path) is True
 
-    def test_is_dynamic_template_pre_training_job(self):
-        """Test is_dynamic_template recognizes pre-training-job"""
-        from sagemaker.hyperpod.cli.init_utils import is_dynamic_template
-        
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-            override_file = temp_path / ".override_spec.json"
-            override_file.write_text('{"test": "data"}')
-            
-            assert is_dynamic_template("pre-training-job", temp_path) is True
-
     def test_is_dynamic_template_evaluation_job(self):
         """Test is_dynamic_template recognizes evaluation-job"""
         from sagemaker.hyperpod.cli.init_utils import is_dynamic_template
@@ -285,7 +199,6 @@ class TestInitConstantsChanges:
         from sagemaker.hyperpod.cli.constants.init_constants import TEMPLATES
         
         assert "fine-tuning-job" in TEMPLATES
-        assert "pre-training-job" in TEMPLATES
         assert "evaluation-job" in TEMPLATES
 
     def test_new_job_types_have_dynamic_type(self):
@@ -293,5 +206,4 @@ class TestInitConstantsChanges:
         from sagemaker.hyperpod.cli.constants.init_constants import TEMPLATES
         
         assert TEMPLATES["fine-tuning-job"]["type"] == "dynamic"
-        assert TEMPLATES["pre-training-job"]["type"] == "dynamic"
         assert TEMPLATES["evaluation-job"]["type"] == "dynamic"

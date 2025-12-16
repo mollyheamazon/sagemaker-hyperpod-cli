@@ -382,10 +382,10 @@ def _default_create(region, template_version, debug):
         return
     
     # Handle standard templates (existing logic)
-    _create_standard_template(dir_path, data, template, version, region, template_version)
+    _create_standard_template(dir_path, data, template, version, region, template_version, debug)
 
 
-def _create_standard_template(dir_path: Path, data: dict, template: str, version: str, region: str, template_version: int):
+def _create_standard_template(dir_path: Path, data: dict, template: str, version: str, region: str, template_version: int, debug: bool = False):
     """Handle create for standard templates"""
     # Check if region flag is used for non-cluster-stack templates
     if region and template != "cluster-stack":

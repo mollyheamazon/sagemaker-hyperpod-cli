@@ -445,7 +445,7 @@ def is_dynamic_template(template: str, dir_path: Path = None) -> bool:
     
     # Check if .override_spec.json exists
     override_spec_file = dir_path / ".override_spec.json"
-    return override_spec_file.exists() and template in ["fine-tuning-job", "evaluation-job"]
+    return override_spec_file.exists() and template in ["hyp-recipe-job"]
 
 
 def load_dynamic_schema(dir_path: Path = None) -> dict:

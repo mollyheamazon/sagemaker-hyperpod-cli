@@ -32,15 +32,15 @@ from sagemaker.hyperpod.common.telemetry.telemetry_logging import (
     _hyperpod_telemetry_emitter,
 )
 from sagemaker.hyperpod.common.telemetry.constants import Feature
-from sagemaker.hyperpod.cli.commands.training_fine_tuning import _init_training_job, _configure_dynamic_template, _validate_dynamic_template, _create_dynamic_template, _generate_dynamic_config_yaml
+from sagemaker.hyperpod.cli.commands.training_recipe import _init_training_job, _configure_dynamic_template, _validate_dynamic_template, _create_dynamic_template, _generate_dynamic_config_yaml
 
 
 @click.command("init")
-@click.argument("template", type=click.Choice(list(TEMPLATES.keys()) + ["fine-tuning-job", "evaluation-job"]))
+@click.argument("template", type=click.Choice(list(TEMPLATES.keys())))
 @click.argument("directory", type=click.Path(file_okay=False), default=".")
 @click.option("--version", "-v", default=None, help="Schema version")
-@click.option("--model-name", help="Model name from SageMaker Public Hub (for training/evaluation jobs)")
-@click.option("--technique", help="Customization technique (for fine-tuning-job only)")
+@click.option("--model-name", help="Model name from SageMaker Public Hub (for recipe jobs)")
+@click.option("--technique", help="Customization technique (for hyp-recipe-job only)")
 @click.option("--instance-type", help="Instance type (optional - if not provided, interactive cluster selection will be used)")
 @_hyperpod_telemetry_emitter(Feature.HYPERPOD_CLI, "init_template_cli")
 def init(
@@ -111,14 +111,9 @@ def init(
         sys.exit(1)
 
     # Handle dynamic job templates after validation
-    if template in ["fine-tuning-job", "evaluation-job"]:
+    if template in ["hyp-recipe-job"]:
         if not model_name:
             click.secho(f"❌ --model-name is required for {template}", fg="red")
-            return
-        
-        # Only fine-tuning-job requires technique
-        if template == "fine-tuning-job" and not technique:
-            click.secho("❌ --technique is required for fine-tuning-job", fg="red")
             return
         
         if _init_training_job(directory, template, model_name, technique, instance_type):
@@ -245,9 +240,9 @@ def configure(ctx, option, value, model_config):
     dir_path = Path(".").resolve()
     data, template, version = load_config(dir_path)
     
-    # 2) Check if this is a dynamic template (fine-tuning)
+    # 2) Check if this is a dynamic template (recipe)
     if is_dynamic_template(template, dir_path):
-        # Handle fine-tuning configure logic
+        # Handle recipe configure logic
         _configure_dynamic_template(ctx, option, value, dir_path)
         return
     
@@ -376,7 +371,7 @@ def _default_create(region, template_version, debug):
     # 1) Load config to determine template type
     data, template, version = load_config_and_validate(dir_path)
     
-    # Check if this is a dynamic template (fine-tuning)
+    # Check if this is a dynamic template (recipe)
     if is_dynamic_template(template, dir_path):
         _create_dynamic_template(dir_path, data)
         return

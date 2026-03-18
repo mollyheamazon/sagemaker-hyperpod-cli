@@ -39,14 +39,7 @@ TEMPLATES = {
         "schema_type": CFN,
         'type': "jinja"
     },
-    "fine-tuning-job": {
-        "registry": {},
-        "template_registry": {},
-        "schema_pkg": None,
-        "schema_type": CRD,
-        'type': "dynamic"
-    },
-    "evaluation-job": {
+    "hyp-recipe-job": {
         "registry": {},
         "template_registry": {},
         "schema_pkg": None,

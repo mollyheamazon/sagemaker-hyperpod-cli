@@ -62,7 +62,7 @@ from sagemaker.hyperpod.cli.commands.init import (
     configure,
     _default_create
 )
-# from sagemaker.hyperpod.cli.commands.training_fine_tuning import create_fine_tuning_job_interactive
+# from sagemaker.hyperpod.cli.commands.training_recipe import create_recipe_job_interactive
 
 
 def get_package_version(package_name):
@@ -208,7 +208,7 @@ cli.add_command(configure)
 cli.add_command(validate)
 
 create.add_command(pytorch_create)
-# create.add_command(create_fine_tuning_job_interactive)
+# create.add_command(create_recipe_job_interactive)
 create.add_command(js_create)
 create.add_command(custom_create)
 
@@ -219,12 +219,9 @@ create.add_command(space_template_create)
 create.add_command(space_access_create)
 
 list.add_command(list_jobs)
-fine_tuning_list_cmd = copy.copy(list_jobs)
-fine_tuning_list_cmd.help = "List all HyperPod fine-tuning jobs"
-list.add_command(fine_tuning_list_cmd, name="fine-tuning-job")
-evaluation_list_cmd = copy.copy(list_jobs)
-evaluation_list_cmd.help = "List all HyperPod evaluation jobs"
-list.add_command(evaluation_list_cmd, name="evaluation-job")
+recipe_list_cmd = copy.copy(list_jobs)
+recipe_list_cmd.help = "List all HyperPod recipe jobs"
+list.add_command(recipe_list_cmd, name="hyp-recipe-job")
 list.add_command(js_list)
 list.add_command(custom_list)
 list.add_command(list_cluster_stacks)
@@ -232,12 +229,9 @@ list.add_command(space_list)
 list.add_command(space_template_list)
 
 describe.add_command(pytorch_describe)
-fine_tuning_describe_cmd = copy.copy(pytorch_describe)
-fine_tuning_describe_cmd.help = "Describe a HyperPod fine-tuning job."
-describe.add_command(fine_tuning_describe_cmd, name="fine-tuning-job")
-evaluation_describe_cmd = copy.copy(pytorch_describe)
-evaluation_describe_cmd.help = "Describe a HyperPod evaluation job."
-describe.add_command(evaluation_describe_cmd, name="evaluation-job")
+recipe_describe_cmd = copy.copy(pytorch_describe)
+recipe_describe_cmd.help = "Describe a HyperPod recipe job."
+describe.add_command(recipe_describe_cmd, name="hyp-recipe-job")
 describe.add_command(js_describe)
 describe.add_command(custom_describe)
 describe.add_command(describe_cluster_stack)
@@ -251,12 +245,9 @@ update.add_command(space_update)
 update.add_command(space_template_update)
 
 delete.add_command(pytorch_delete)
-fine_tuning_delete_cmd = copy.copy(pytorch_delete)
-fine_tuning_delete_cmd.help = "Delete a HyperPod fine-tuning job."
-delete.add_command(fine_tuning_delete_cmd, name="fine-tuning-job")
-evaluation_delete_cmd = copy.copy(pytorch_delete)
-evaluation_delete_cmd.help = "Delete a HyperPod evaluation job."
-delete.add_command(evaluation_delete_cmd, name="evaluation-job")
+recipe_delete_cmd = copy.copy(pytorch_delete)
+recipe_delete_cmd.help = "Delete a HyperPod recipe job."
+delete.add_command(recipe_delete_cmd, name="hyp-recipe-job")
 delete.add_command(js_delete)
 delete.add_command(custom_delete)
 delete.add_command(delete_cluster_stack)
@@ -268,22 +259,16 @@ start.add_command(space_start)
 stop.add_command(space_stop)
 
 list_pods.add_command(pytorch_list_pods)
-fine_tuning_list_pods_cmd = copy.copy(pytorch_list_pods)
-fine_tuning_list_pods_cmd.help = "List all HyperPod PyTorch pods related to the fine-tuning job."
-list_pods.add_command(fine_tuning_list_pods_cmd, name="fine-tuning-job")
-evaluation_list_pods_cmd = copy.copy(pytorch_list_pods)
-evaluation_list_pods_cmd.help = "List all HyperPod PyTorch pods related to the evaluation job."
-list_pods.add_command(evaluation_list_pods_cmd, name="evaluation-job")
+recipe_list_pods_cmd = copy.copy(pytorch_list_pods)
+recipe_list_pods_cmd.help = "List all HyperPod PyTorch pods related to the recipe job."
+list_pods.add_command(recipe_list_pods_cmd, name="hyp-recipe-job")
 list_pods.add_command(js_list_pods)
 list_pods.add_command(custom_list_pods)
 
 get_logs.add_command(pytorch_get_logs)
-fine_tuning_get_logs_cmd = copy.copy(pytorch_get_logs)
-fine_tuning_get_logs_cmd.help = "Get specific pod log for Hyperpod fine-tuning job."
-get_logs.add_command(fine_tuning_get_logs_cmd, name="fine-tuning-job")
-evaluation_get_logs_cmd = copy.copy(pytorch_get_logs)
-evaluation_get_logs_cmd.help = "Get specific pod log for Hyperpod evaluation job."
-get_logs.add_command(evaluation_get_logs_cmd, name="evaluation-job")
+recipe_get_logs_cmd = copy.copy(pytorch_get_logs)
+recipe_get_logs_cmd.help = "Get specific pod log for HyperPod recipe job."
+get_logs.add_command(recipe_get_logs_cmd, name="hyp-recipe-job")
 get_logs.add_command(js_get_logs)
 get_logs.add_command(custom_get_logs)
 get_logs.add_command(space_get_logs)
@@ -291,12 +276,9 @@ get_logs.add_command(space_get_logs)
 portforward.add_command(space_portforward)
 
 get_operator_logs.add_command(pytorch_get_operator_logs)
-fine_tuning_get_operator_logs_cmd = copy.copy(pytorch_get_operator_logs)
-fine_tuning_get_operator_logs_cmd.help = "Get operator logs for Hyperpod fine-tuning jobs."
-get_operator_logs.add_command(fine_tuning_get_operator_logs_cmd, name="fine-tuning-job")
-evaluation_get_operator_logs_cmd = copy.copy(pytorch_get_operator_logs)
-evaluation_get_operator_logs_cmd.help = "Get operator logs for Hyperpod evaluation jobs."
-get_operator_logs.add_command(evaluation_get_operator_logs_cmd, name="evaluation-job")
+recipe_get_operator_logs_cmd = copy.copy(pytorch_get_operator_logs)
+recipe_get_operator_logs_cmd.help = "Get operator logs for HyperPod recipe jobs."
+get_operator_logs.add_command(recipe_get_operator_logs_cmd, name="hyp-recipe-job")
 get_operator_logs.add_command(js_get_operator_logs)
 get_operator_logs.add_command(custom_get_operator_logs)
 

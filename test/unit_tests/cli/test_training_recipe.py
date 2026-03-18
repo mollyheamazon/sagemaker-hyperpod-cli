@@ -8,13 +8,13 @@ from kubernetes.client.rest import ApiException
 from kubernetes import config
 import click
 
-from sagemaker.hyperpod.cli.commands.training_fine_tuning import (
+from sagemaker.hyperpod.cli.commands.training_recipe import (
     _configure_dynamic_template,
     _create_dynamic_template,
     _init_training_job,
-    # create_fine_tuning_job_interactive
+    # create_recipe_job_interactive
 )
-from sagemaker.hyperpod.cli.fine_tuning_utils import (
+from sagemaker.hyperpod.cli.recipe_utils import (
     _validate_dynamic_template,
     _update_config_field,
     _fetch_recipe_from_hub,
@@ -83,10 +83,10 @@ class TestValidateDynamicTemplate:
 class TestCreateDynamicTemplate:
     """Test cases for _create_dynamic_template function"""
 
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._validate_dynamic_template')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._submit_k8s_resources')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._get_k8s_custom_client')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning.click.secho')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe._validate_dynamic_template')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe._submit_k8s_resources')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe._get_k8s_custom_client')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe.click.secho')
     def test_create_dynamic_template_success(self, mock_secho, mock_custom_client, mock_submit, mock_validate):
         """Test successful template creation and submission"""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -132,11 +132,11 @@ metadata:
 class TestInitTrainingJob:
     """Test cases for _init_training_job function"""
 
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._get_sagemaker_client')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._get_s3_client')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning.click.secho')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe._get_sagemaker_client')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe._get_s3_client')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe.click.secho')
     def test_init_training_job_success(self, mock_secho, mock_get_s3_client, mock_get_sagemaker_client):
-        """Test successful fine-tuning job initialization"""
+        """Test successful recipe job initialization"""
         with tempfile.TemporaryDirectory() as temp_dir:
             # Mock SageMaker client
             mock_sagemaker = MagicMock()
@@ -161,7 +161,7 @@ class TestInitTrainingJob:
             ]
             mock_get_s3_client.return_value = mock_s3
             
-            result = _init_training_job(temp_dir, "fine-tuning-job", "test-model", "lora", "ml.p4d.24xlarge")
+            result = _init_training_job(temp_dir, "hyp-recipe-job", "test-model", "lora", "ml.p4d.24xlarge")
             
             assert result is True
             assert Path(temp_dir, ".override_spec.json").exists()
@@ -169,11 +169,11 @@ class TestInitTrainingJob:
             assert Path(temp_dir, "k8s.jinja").exists()
 
 
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._get_sagemaker_client')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._get_s3_client')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning.click.secho')
-    def test_init_evaluation_job_success(self, mock_secho, mock_get_s3_client, mock_get_sagemaker_client):
-        """Test successful evaluation job initialization"""
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe._get_sagemaker_client')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe._get_s3_client')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe.click.secho')
+    def test_init_recipe_job_no_technique(self, mock_secho, mock_get_s3_client, mock_get_sagemaker_client):
+        """Test successful recipe job initialization without technique"""
         with tempfile.TemporaryDirectory() as temp_dir:
             # Mock SageMaker client
             mock_sagemaker = MagicMock()
@@ -197,17 +197,17 @@ class TestInitTrainingJob:
             ]
             mock_get_s3_client.return_value = mock_s3
             
-            result = _init_training_job(temp_dir, "evaluation-job", "test-model", None, "ml.p4d.24xlarge")
+            result = _init_training_job(temp_dir, "hyp-recipe-job", "test-model", None, "ml.p4d.24xlarge")
             
             assert result is True
             assert Path(temp_dir, ".override_spec.json").exists()
             assert Path(temp_dir, "config.yaml").exists()
             assert Path(temp_dir, "k8s.jinja").exists()
 
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._interactive_cluster_selection')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._get_sagemaker_client')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._get_s3_client')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning.click.secho')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe._interactive_cluster_selection')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe._get_sagemaker_client')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe._get_s3_client')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe.click.secho')
     def test_init_training_job_with_interactive_selection(self, mock_secho, mock_get_s3_client, mock_get_sagemaker_client, mock_interactive):
         """Test training job initialization with interactive cluster selection"""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -238,7 +238,7 @@ class TestInitTrainingJob:
             mock_get_s3_client.return_value = mock_s3
             
             # Call without instance_type to trigger interactive selection
-            result = _init_training_job(temp_dir, "fine-tuning-job", "test-model", "lora")
+            result = _init_training_job(temp_dir, "hyp-recipe-job", "test-model", "lora")
             
             assert result is True
             mock_interactive.assert_called_once()
@@ -246,9 +246,9 @@ class TestInitTrainingJob:
             assert Path(temp_dir, "config.yaml").exists()
             assert Path(temp_dir, "k8s.jinja").exists()
 
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._interactive_cluster_selection')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._get_sagemaker_client')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning.click.secho')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe._interactive_cluster_selection')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe._get_sagemaker_client')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe.click.secho')
     def test_init_training_job_interactive_selection_fails(self, mock_secho, mock_get_sagemaker_client, mock_interactive):
         """Test training job initialization when interactive selection fails"""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -258,7 +258,7 @@ class TestInitTrainingJob:
             mock_sagemaker = MagicMock()
             mock_get_sagemaker_client.return_value = mock_sagemaker
             
-            result = _init_training_job(temp_dir, "fine-tuning-job", "test-model", "lora")
+            result = _init_training_job(temp_dir, "hyp-recipe-job", "test-model", "lora")
             
             assert result is False
             mock_interactive.assert_called_once()
@@ -301,8 +301,8 @@ class TestUpdateConfigField:
 class TestFetchRecipeFromHub:
     """Test cases for _fetch_recipe_from_hub function"""
 
-    def test_fetch_recipe_fine_tuning_single_match(self):
-        """Test fetching fine-tuning recipe with single matching recipe"""
+    def test_fetch_recipe_single_match(self):
+        """Test fetching recipe recipe with single matching recipe"""
         mock_client = MagicMock()
         mock_client.describe_hub_content.return_value = {
             'HubContentDocument': json.dumps({
@@ -314,14 +314,14 @@ class TestFetchRecipeFromHub:
             })
         }
         
-        result = _fetch_recipe_from_hub(mock_client, "test-model", "fine-tuning-job", "lora", "ml.p4d.24xlarge")
+        result = _fetch_recipe_from_hub(mock_client, "test-model", "hyp-recipe-job", "lora", "ml.p4d.24xlarge")
         
         assert result['Type'] == 'FineTuning'
         assert result['CustomizationTechnique'] == 'lora'
         assert 'ml.p4d.24xlarge' in result['SupportedInstanceTypes']
 
-    def test_fetch_recipe_evaluation_success(self):
-        """Test fetching evaluation recipe successfully"""
+    def test_fetch_recipe_no_technique_success(self):
+        """Test fetching recipe without technique successfully"""
         mock_client = MagicMock()
         mock_client.describe_hub_content.return_value = {
             'HubContentDocument': json.dumps({
@@ -332,7 +332,7 @@ class TestFetchRecipeFromHub:
             })
         }
         
-        result = _fetch_recipe_from_hub(mock_client, "test-model", "evaluation-job", None, "ml.p4d.24xlarge")
+        result = _fetch_recipe_from_hub(mock_client, "test-model", "hyp-recipe-job", None, "ml.p4d.24xlarge")
         
         assert result['Type'] == 'Evaluation'
         assert 'ml.p4d.24xlarge' in result['SupportedInstanceTypes']
@@ -360,7 +360,7 @@ class TestFetchRecipeFromHub:
         }
         
         with pytest.raises(ValueError, match="Instance type ml.p4d.24xlarge not supported. Supported: \\['ml.g4dn.xlarge', 'ml.g5.xlarge'\\]"):
-            _fetch_recipe_from_hub(mock_client, "test-model", "fine-tuning-job", "lora", "ml.p4d.24xlarge")
+            _fetch_recipe_from_hub(mock_client, "test-model", "hyp-recipe-job", "lora", "ml.p4d.24xlarge")
 
 
 class TestValidateAndConvertValue:
@@ -403,52 +403,52 @@ class TestValidateAndConvertValue:
 
 
 # class TestCreateFineTuningJobInteractive:
-#     """Test cases for create_fine_tuning_job_interactive function"""
+#     """Test cases for create_recipe_job_interactive function"""
 
-#     @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning.click.secho')
+#     @patch('sagemaker.hyperpod.cli.commands.training_recipe.click.secho')
 #     def test_create_missing_parameters(self, mock_secho):
 #         """Test create command with missing required parameters"""
 #         # Call the function directly, not the Click command
-#         from sagemaker.hyperpod.cli.commands.training_fine_tuning import create_fine_tuning_job_interactive
+#         from sagemaker.hyperpod.cli.commands.training_recipe import create_recipe_job_interactive
         
 #         # Get the actual function, not the Click command wrapper
-#         func = create_fine_tuning_job_interactive.callback
+#         func = create_recipe_job_interactive.callback
 #         result = func(None, "lora", "ml.p4d.24xlarge")
         
 #         assert result is False
-#         mock_secho.assert_called_with("❌ --model-name, --technique, and --instance-type are required for fine-tuning-job", fg="red")
+#         mock_secho.assert_called_with("❌ --model-name, --technique, and --instance-type are required for hyp-recipe-job", fg="red")
 
-#     @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning.click.secho')
+#     @patch('sagemaker.hyperpod.cli.commands.training_recipe.click.secho')
 #     def test_create_missing_technique(self, mock_secho):
 #         """Test create command with missing technique"""
-#         from sagemaker.hyperpod.cli.commands.training_fine_tuning import create_fine_tuning_job_interactive
+#         from sagemaker.hyperpod.cli.commands.training_recipe import create_recipe_job_interactive
         
-#         func = create_fine_tuning_job_interactive.callback
+#         func = create_recipe_job_interactive.callback
 #         result = func("test-model", None, "ml.p4d.24xlarge")
         
 #         assert result is False
-#         mock_secho.assert_called_with("❌ --model-name, --technique, and --instance-type are required for fine-tuning-job", fg="red")
+#         mock_secho.assert_called_with("❌ --model-name, --technique, and --instance-type are required for hyp-recipe-job", fg="red")
 
-#     @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning.click.secho')
+#     @patch('sagemaker.hyperpod.cli.commands.training_recipe.click.secho')
 #     def test_create_missing_instance_type(self, mock_secho):
 #         """Test create command with missing instance type"""
-#         from sagemaker.hyperpod.cli.commands.training_fine_tuning import create_fine_tuning_job_interactive
+#         from sagemaker.hyperpod.cli.commands.training_recipe import create_recipe_job_interactive
         
-#         func = create_fine_tuning_job_interactive.callback
+#         func = create_recipe_job_interactive.callback
 #         result = func("test-model", "lora", None)
         
 #         assert result is False
-#         mock_secho.assert_called_with("❌ --model-name, --technique, and --instance-type are required for fine-tuning-job", fg="red")
+#         mock_secho.assert_called_with("❌ --model-name, --technique, and --instance-type are required for hyp-recipe-job", fg="red")
 
-#     @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._get_sagemaker_client')
-#     @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._get_s3_client')
-#     @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._get_k8s_custom_client')
-#     @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._collect_all_parameters_interactively')
-#     @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._submit_k8s_resources')
-#     @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning.click.secho')
+#     @patch('sagemaker.hyperpod.cli.commands.training_recipe._get_sagemaker_client')
+#     @patch('sagemaker.hyperpod.cli.commands.training_recipe._get_s3_client')
+#     @patch('sagemaker.hyperpod.cli.commands.training_recipe._get_k8s_custom_client')
+#     @patch('sagemaker.hyperpod.cli.commands.training_recipe._collect_all_parameters_interactively')
+#     @patch('sagemaker.hyperpod.cli.commands.training_recipe._submit_k8s_resources')
+#     @patch('sagemaker.hyperpod.cli.commands.training_recipe.click.secho')
 #     def test_create_success(self, mock_secho, mock_submit, mock_collect, mock_k8s_client, mock_s3_client, mock_sagemaker_client):
 #         """Test successful create command"""
-#         from sagemaker.hyperpod.cli.commands.training_fine_tuning import create_fine_tuning_job_interactive
+#         from sagemaker.hyperpod.cli.commands.training_recipe import create_recipe_job_interactive
         
 #         # Mock SageMaker client
 #         mock_sagemaker = MagicMock()
@@ -479,38 +479,38 @@ class TestValidateAndConvertValue:
 #         # Mock submit to return True
 #         mock_submit.return_value = True
         
-#         func = create_fine_tuning_job_interactive.callback
+#         func = create_recipe_job_interactive.callback
 #         result = func("test-model", "lora", "ml.p4d.24xlarge")
         
 #         assert result is True
-#         mock_secho.assert_any_call("✅ Fine-tuning job created successfully!", fg="green", bold=True)
+#         mock_secho.assert_any_call("✅ Recipe job created successfully!", fg="green", bold=True)
 
 
 class TestInitFineTuningJobErrorPaths:
     """Test error paths for _init_training_job function"""
 
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._get_s3_client')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._get_sagemaker_client')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._fetch_recipe_from_hub')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning.click.secho')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe._get_s3_client')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe._get_sagemaker_client')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe._fetch_recipe_from_hub')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe.click.secho')
     def test_init_missing_s3_uris(self, mock_secho, mock_fetch_recipe, mock_get_sagemaker_client, mock_get_s3_client):
         """Test init with missing S3 URIs in recipe"""
         mock_fetch_recipe.return_value = {}
         
-        result = _init_training_job("test-dir", "fine-tuning-job", "model", "technique", "instance")
+        result = _init_training_job("test-dir", "hyp-recipe-job", "model", "technique", "instance")
         
         assert result is False
         mock_secho.assert_called_with("❌ Missing S3 URIs in recipe", fg="red")
 
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._get_s3_client')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._get_sagemaker_client')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._fetch_recipe_from_hub')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning.click.secho')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe._get_s3_client')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe._get_sagemaker_client')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe._fetch_recipe_from_hub')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe.click.secho')
     def test_init_exception_handling(self, mock_secho, mock_fetch_recipe, mock_get_sagemaker_client, mock_get_s3_client):
         """Test init with exception handling"""
         mock_fetch_recipe.side_effect = Exception("Test error")
         
-        result = _init_training_job("test-dir", "fine-tuning-job", "model", "technique", "instance")
+        result = _init_training_job("test-dir", "hyp-recipe-job", "model", "technique", "instance")
         
         assert result is False
         mock_secho.assert_called_with("❌ Error: Test error", fg="red")
@@ -520,7 +520,7 @@ class TestCollectParameterInteractively:
     """Test cases for _collect_parameter_interactively function"""
 
     @patch('builtins.input', return_value='test_value')
-    @patch('sagemaker.hyperpod.cli.fine_tuning_utils.click.secho')
+    @patch('sagemaker.hyperpod.cli.recipe_utils.click.secho')
     def test_collect_required_parameter(self, mock_secho, mock_input):
         """Test collecting a required parameter"""
         param_spec = {
@@ -535,7 +535,7 @@ class TestCollectParameterInteractively:
         assert value == 'test_value'
 
     @patch('builtins.input', return_value='')
-    @patch('sagemaker.hyperpod.cli.fine_tuning_utils.click.secho')
+    @patch('sagemaker.hyperpod.cli.recipe_utils.click.secho')
     def test_collect_optional_parameter_empty(self, mock_secho, mock_input):
         """Test collecting optional parameter with empty input"""
         param_spec = {
@@ -550,7 +550,7 @@ class TestCollectParameterInteractively:
         assert value is None
 
     @patch('builtins.input', side_effect=['', 'valid_value'])
-    @patch('sagemaker.hyperpod.cli.fine_tuning_utils.click.secho')
+    @patch('sagemaker.hyperpod.cli.recipe_utils.click.secho')
     def test_collect_required_parameter_retry(self, mock_secho, mock_input):
         """Test collecting required parameter with retry on empty input"""
         param_spec = {
@@ -566,7 +566,7 @@ class TestCollectParameterInteractively:
         mock_secho.assert_any_call("❌ This field is required. Please provide a value.", fg="red")
 
     @patch('builtins.input', return_value='')
-    @patch('sagemaker.hyperpod.cli.fine_tuning_utils.click.secho')
+    @patch('sagemaker.hyperpod.cli.recipe_utils.click.secho')
     def test_collect_parameter_with_default(self, mock_secho, mock_input):
         """Test collecting parameter with default value"""
         param_spec = {
@@ -585,11 +585,11 @@ class TestCollectParameterInteractively:
 class TestClientManagement:
     """Test cases for client management functions"""
 
-    @patch('sagemaker.hyperpod.cli.fine_tuning_utils.boto3.client')
+    @patch('sagemaker.hyperpod.cli.recipe_utils.boto3.client')
     def test_get_sagemaker_client(self, mock_boto3_client):
         """Test SageMaker client creation"""
         # Reset global client
-        import sagemaker.hyperpod.cli.fine_tuning_utils as utils
+        import sagemaker.hyperpod.cli.recipe_utils as utils
         utils._sagemaker_client = None
         
         mock_client = MagicMock()
@@ -603,11 +603,11 @@ class TestClientManagement:
             endpoint_url="https://sagemaker.beta.us-west-2.ml-platform.aws.a2z.com"
         )
 
-    @patch('sagemaker.hyperpod.cli.fine_tuning_utils.boto3.client')
+    @patch('sagemaker.hyperpod.cli.recipe_utils.boto3.client')
     def test_get_s3_client(self, mock_boto3_client):
         """Test S3 client creation"""
         # Reset global client
-        import sagemaker.hyperpod.cli.fine_tuning_utils as utils
+        import sagemaker.hyperpod.cli.recipe_utils as utils
         utils._s3_client = None
         
         mock_client = MagicMock()
@@ -618,12 +618,12 @@ class TestClientManagement:
         assert client == mock_client
         mock_boto3_client.assert_called_once_with("s3")
 
-    @patch('sagemaker.hyperpod.cli.fine_tuning_utils.client.CustomObjectsApi')
-    @patch('sagemaker.hyperpod.cli.fine_tuning_utils.config.load_kube_config')
+    @patch('sagemaker.hyperpod.cli.recipe_utils.client.CustomObjectsApi')
+    @patch('sagemaker.hyperpod.cli.recipe_utils.config.load_kube_config')
     def test_get_k8s_client_success(self, mock_load_config, mock_custom_api):
         """Test Kubernetes client creation success"""
         # Reset global client
-        import sagemaker.hyperpod.cli.fine_tuning_utils as utils
+        import sagemaker.hyperpod.cli.recipe_utils as utils
         utils._k8s_custom_client = None
         
         mock_client = MagicMock()
@@ -634,13 +634,13 @@ class TestClientManagement:
         assert client == mock_client
         mock_load_config.assert_called_once()
 
-    @patch('sagemaker.hyperpod.cli.fine_tuning_utils.client.CustomObjectsApi')
-    @patch('sagemaker.hyperpod.cli.fine_tuning_utils.config.load_incluster_config')
-    @patch('sagemaker.hyperpod.cli.fine_tuning_utils.config.load_kube_config')
+    @patch('sagemaker.hyperpod.cli.recipe_utils.client.CustomObjectsApi')
+    @patch('sagemaker.hyperpod.cli.recipe_utils.config.load_incluster_config')
+    @patch('sagemaker.hyperpod.cli.recipe_utils.config.load_kube_config')
     def test_get_k8s_client_fallback(self, mock_load_config, mock_load_incluster, mock_custom_api):
         """Test Kubernetes client creation with fallback"""
         # Reset global client
-        import sagemaker.hyperpod.cli.fine_tuning_utils as utils
+        import sagemaker.hyperpod.cli.recipe_utils as utils
         utils._k8s_custom_client = None
         
         mock_load_config.side_effect = config.ConfigException("Config error")
@@ -652,12 +652,12 @@ class TestClientManagement:
         assert client == mock_client
         mock_load_incluster.assert_called_once()
 
-    @patch('sagemaker.hyperpod.cli.fine_tuning_utils.config.load_incluster_config')
-    @patch('sagemaker.hyperpod.cli.fine_tuning_utils.config.load_kube_config')
+    @patch('sagemaker.hyperpod.cli.recipe_utils.config.load_incluster_config')
+    @patch('sagemaker.hyperpod.cli.recipe_utils.config.load_kube_config')
     def test_get_k8s_client_failure(self, mock_load_config, mock_load_incluster):
         """Test Kubernetes client creation failure"""
         # Reset global client
-        import sagemaker.hyperpod.cli.fine_tuning_utils as utils
+        import sagemaker.hyperpod.cli.recipe_utils as utils
         utils._k8s_custom_client = None
         
         mock_load_config.side_effect = config.ConfigException("Config error")
@@ -670,9 +670,9 @@ class TestClientManagement:
 class TestCreateDynamicTemplateErrorPaths:
     """Test error paths for _create_dynamic_template function"""
 
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._validate_dynamic_template')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning.click.secho')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning.sys.exit')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe._validate_dynamic_template')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe.click.secho')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe.sys.exit')
     def test_create_validation_error(self, mock_exit, mock_secho, mock_validate):
         """Test create with validation error"""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -685,8 +685,8 @@ class TestCreateDynamicTemplateErrorPaths:
             mock_secho.assert_called_with("❌ Validation failed", fg="red")
             mock_exit.assert_called_with(1)
 
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning.click.secho')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning.sys.exit')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe.click.secho')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe.sys.exit')
     def test_create_missing_template(self, mock_exit, mock_secho):
         """Test create with missing k8s.jinja template"""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -701,10 +701,10 @@ class TestCreateDynamicTemplateErrorPaths:
 class TestDownloadFunctions:
     """Test cases for S3 download functions"""
 
-    @patch('sagemaker.hyperpod.cli.fine_tuning_utils.json.loads')
+    @patch('sagemaker.hyperpod.cli.recipe_utils.json.loads')
     def test_download_s3_json(self, mock_json_loads):
         """Test S3 JSON download"""
-        from sagemaker.hyperpod.cli.fine_tuning_utils import _download_s3_json
+        from sagemaker.hyperpod.cli.recipe_utils import _download_s3_json
         
         mock_s3_client = MagicMock()
         mock_s3_client.get_object.return_value = {
@@ -719,7 +719,7 @@ class TestDownloadFunctions:
 
     def test_download_s3_content(self):
         """Test S3 content download"""
-        from sagemaker.hyperpod.cli.fine_tuning_utils import _download_s3_content
+        from sagemaker.hyperpod.cli.recipe_utils import _download_s3_content
         
         mock_s3_client = MagicMock()
         mock_s3_client.get_object.return_value = {
@@ -735,11 +735,11 @@ class TestDownloadFunctions:
 class TestInstanceTypeOverride:
     """Test cases for instance type override functionality in _generate_dynamic_config_yaml"""
 
-    @patch('sagemaker.hyperpod.cli.fine_tuning_utils.load_dynamic_schema')
+    @patch('sagemaker.hyperpod.cli.recipe_utils.load_dynamic_schema')
     @patch('builtins.open', new_callable=mock_open)
     def test_generate_config_with_instance_type_override(self, mock_file, mock_load_schema):
         """Test that instance_type field is overridden with user input"""
-        from sagemaker.hyperpod.cli.fine_tuning_utils import _generate_dynamic_config_yaml
+        from sagemaker.hyperpod.cli.recipe_utils import _generate_dynamic_config_yaml
         
         # Mock schema with instance_type parameter
         mock_schema = {
@@ -763,7 +763,7 @@ class TestInstanceTypeOverride:
             # Call with instance_type override
             _generate_dynamic_config_yaml(
                 temp_path, 
-                "fine-tuning-job",
+                "hyp-recipe-job",
                 model_name="test-model",
                 technique="SFT", 
                 instance_type="ml.g5.48xlarge"
@@ -774,11 +774,11 @@ class TestInstanceTypeOverride:
             assert "ml.g5.48xlarge" in written_content
             assert "instance_type: ml.g5.48xlarge" in written_content
 
-    @patch('sagemaker.hyperpod.cli.fine_tuning_utils.load_dynamic_schema')
+    @patch('sagemaker.hyperpod.cli.recipe_utils.load_dynamic_schema')
     @patch('builtins.open', new_callable=mock_open)
     def test_generate_config_without_instance_type_override(self, mock_file, mock_load_schema):
         """Test that default instance_type is used when no override provided"""
-        from sagemaker.hyperpod.cli.fine_tuning_utils import _generate_dynamic_config_yaml
+        from sagemaker.hyperpod.cli.recipe_utils import _generate_dynamic_config_yaml
         
         # Mock schema with instance_type parameter
         mock_schema = {
@@ -797,7 +797,7 @@ class TestInstanceTypeOverride:
             # Call without instance_type override
             _generate_dynamic_config_yaml(
                 temp_path,
-                "fine-tuning-job", 
+                "hyp-recipe-job", 
                 model_name="test-model",
                 technique="SFT"
             )
@@ -806,11 +806,11 @@ class TestInstanceTypeOverride:
             written_content = "".join(call.args[0] for call in mock_file().write.call_args_list)
             assert "ml.g5.2xlarge" in written_content
 
-    @patch('sagemaker.hyperpod.cli.fine_tuning_utils.load_dynamic_schema')
+    @patch('sagemaker.hyperpod.cli.recipe_utils.load_dynamic_schema')
     @patch('builtins.open', new_callable=mock_open)
     def test_generate_config_instance_type_override_only_affects_instance_type_field(self, mock_file, mock_load_schema):
         """Test that instance_type override only affects the instance_type field, not other fields"""
-        from sagemaker.hyperpod.cli.fine_tuning_utils import _generate_dynamic_config_yaml
+        from sagemaker.hyperpod.cli.recipe_utils import _generate_dynamic_config_yaml
         
         # Mock schema with multiple parameters
         mock_schema = {
@@ -835,7 +835,7 @@ class TestInstanceTypeOverride:
             # Call with instance_type override
             _generate_dynamic_config_yaml(
                 temp_path,
-                "fine-tuning-job",
+                "hyp-recipe-job",
                 model_name="test-model", 
                 technique="SFT",
                 instance_type="ml.g5.48xlarge"
@@ -850,11 +850,11 @@ class TestInstanceTypeOverride:
 class TestInteractiveClusterSelection:
     """Test cases for _interactive_cluster_selection function"""
 
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._fetch_recipe_from_hub')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning.click.secho')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe._fetch_recipe_from_hub')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe.click.secho')
     def test_interactive_cluster_selection_no_supported_instance_types(self, mock_secho, mock_fetch_recipe):
         """Test interactive cluster selection with no supported instance types"""
-        from sagemaker.hyperpod.cli.commands.training_fine_tuning import _interactive_cluster_selection
+        from sagemaker.hyperpod.cli.commands.training_recipe import _interactive_cluster_selection
         
         # Mock recipe with no supported instance types
         mock_fetch_recipe.return_value = {
@@ -862,22 +862,22 @@ class TestInteractiveClusterSelection:
         }
         
         mock_sagemaker_client = MagicMock()
-        result = _interactive_cluster_selection(mock_sagemaker_client, "test-model", "fine-tuning-job", "lora")
+        result = _interactive_cluster_selection(mock_sagemaker_client, "test-model", "hyp-recipe-job", "lora")
         
         assert result == (None, None)
         mock_secho.assert_any_call("❌ No supported instance types found in recipe", fg="red")
 
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning._fetch_recipe_from_hub')
-    @patch('sagemaker.hyperpod.cli.commands.training_fine_tuning.click.secho')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe._fetch_recipe_from_hub')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe.click.secho')
     def test_interactive_cluster_selection_exception_handling(self, mock_secho, mock_fetch_recipe):
         """Test interactive cluster selection with exception handling"""
-        from sagemaker.hyperpod.cli.commands.training_fine_tuning import _interactive_cluster_selection
+        from sagemaker.hyperpod.cli.commands.training_recipe import _interactive_cluster_selection
         
         # Mock recipe fetch to raise exception
         mock_fetch_recipe.side_effect = Exception("Test error")
         
         mock_sagemaker_client = MagicMock()
-        result = _interactive_cluster_selection(mock_sagemaker_client, "test-model", "fine-tuning-job", "lora")
+        result = _interactive_cluster_selection(mock_sagemaker_client, "test-model", "hyp-recipe-job", "lora")
         
         assert result == (None, None)
         mock_secho.assert_any_call("❌ Error during cluster selection: Test error", fg="red")
@@ -886,71 +886,71 @@ class TestInteractiveClusterSelection:
 class TestHypCliDeleteCommand:
     """Test cases for the CLI delete command fix"""
 
-    def test_fine_tuning_delete_command_registration(self):
-        """Test that fine-tuning delete command is properly registered"""
+    def test_recipe_delete_command_registration(self):
+        """Test that recipe delete command is properly registered"""
         from sagemaker.hyperpod.cli.hyp_cli import delete
         
-        # Check that fine-tuning-job delete command exists
+        # Check that hyp-recipe-job delete command exists
         commands = delete.list_commands(None)
-        assert "fine-tuning-job" in commands
+        assert "hyp-recipe-job" in commands
         
         # Get the command and verify it's the delete command, not describe
-        fine_tuning_cmd = delete.get_command(None, "fine-tuning-job")
-        assert fine_tuning_cmd is not None
-        assert "Delete" in fine_tuning_cmd.help or "delete" in fine_tuning_cmd.help.lower()
+        recipe_cmd = delete.get_command(None, "hyp-recipe-job")
+        assert recipe_cmd is not None
+        assert "Delete" in recipe_cmd.help or "delete" in recipe_cmd.help.lower()
 
-    def test_fine_tuning_delete_command_help_text(self):
-        """Test that fine-tuning delete command has correct help text"""
+    def test_recipe_delete_command_help_text(self):
+        """Test that recipe delete command has correct help text"""
         from sagemaker.hyperpod.cli.hyp_cli import delete
         
-        fine_tuning_cmd = delete.get_command(None, "fine-tuning-job")
-        assert fine_tuning_cmd is not None
-        assert "Delete a HyperPod fine-tuning job" in fine_tuning_cmd.help
+        recipe_cmd = delete.get_command(None, "hyp-recipe-job")
+        assert recipe_cmd is not None
+        assert "Delete a HyperPod recipe job" in recipe_cmd.help
 
 
-    def test_evaluation_commands_registration(self):
-        """Test that evaluation commands are properly registered"""
+    def test_recipe_commands_registration(self):
+        """Test that recipe commands are properly registered"""
         from sagemaker.hyperpod.cli.hyp_cli import list, describe, delete, list_pods, get_logs, get_operator_logs
         
         # Check list command
         commands = list.list_commands(None)
-        assert "evaluation-job" in commands
+        assert "hyp-recipe-job" in commands
         
         # Check describe command
         commands = describe.list_commands(None)
-        assert "evaluation-job" in commands
+        assert "hyp-recipe-job" in commands
         
         # Check delete command
         commands = delete.list_commands(None)
-        assert "evaluation-job" in commands
+        assert "hyp-recipe-job" in commands
         
         # Check list-pods command
         commands = list_pods.list_commands(None)
-        assert "evaluation-job" in commands
+        assert "hyp-recipe-job" in commands
         
         # Check get-logs command
         commands = get_logs.list_commands(None)
-        assert "evaluation-job" in commands
+        assert "hyp-recipe-job" in commands
         
         # Check get-operator-logs command
         commands = get_operator_logs.list_commands(None)
-        assert "evaluation-job" in commands
+        assert "hyp-recipe-job" in commands
 
-    def test_evaluation_command_help_texts(self):
-        """Test that evaluation commands have correct help text"""
+    def test_recipe_command_help_texts(self):
+        """Test that recipe commands have correct help text"""
         from sagemaker.hyperpod.cli.hyp_cli import list, describe, delete
         
         # Check list command help
-        evaluation_list_cmd = list.get_command(None, "evaluation-job")
-        assert evaluation_list_cmd is not None
-        assert "List all HyperPod evaluation jobs" in evaluation_list_cmd.help
+        recipe_list_cmd = list.get_command(None, "hyp-recipe-job")
+        assert recipe_list_cmd is not None
+        assert "List all HyperPod recipe jobs" in recipe_list_cmd.help
         
         # Check describe command help
-        evaluation_describe_cmd = describe.get_command(None, "evaluation-job")
-        assert evaluation_describe_cmd is not None
-        assert "Describe a HyperPod evaluation job" in evaluation_describe_cmd.help
+        recipe_describe_cmd = describe.get_command(None, "hyp-recipe-job")
+        assert recipe_describe_cmd is not None
+        assert "Describe a HyperPod recipe job" in recipe_describe_cmd.help
         
         # Check delete command help
-        evaluation_delete_cmd = delete.get_command(None, "evaluation-job")
-        assert evaluation_delete_cmd is not None
-        assert "Delete a HyperPod evaluation job" in evaluation_delete_cmd.help
+        recipe_delete_cmd = delete.get_command(None, "hyp-recipe-job")
+        assert recipe_delete_cmd is not None
+        assert "Delete a HyperPod recipe job" in recipe_delete_cmd.help

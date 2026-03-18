@@ -20,7 +20,7 @@ class TestInitDynamicTemplateIntegration:
         with tempfile.TemporaryDirectory() as temp_dir:
             with runner.isolated_filesystem(temp_dir):
                 # Mock config loading
-                mock_load_config.return_value = ({"job_name": "test"}, "fine-tuning-job", "1.0")
+                mock_load_config.return_value = ({"job_name": "test"}, "hyp-recipe-job", "1.0")
                 mock_is_dynamic.return_value = True
                 mock_validate_dynamic.return_value = True
                 
@@ -40,7 +40,7 @@ class TestInitDynamicTemplateIntegration:
             with runner.isolated_filesystem(temp_dir):
                 # Mock config loading
                 config_data = {"job_name": "test-job", "epochs": 50}
-                mock_load_config.return_value = (config_data, "fine-tuning-job", "1.0")
+                mock_load_config.return_value = (config_data, "hyp-recipe-job", "1.0")
                 mock_is_dynamic.return_value = True
                 
                 result = runner.invoke(_default_create)
@@ -58,13 +58,13 @@ class TestInitDynamicTemplateIntegration:
         with tempfile.TemporaryDirectory() as temp_dir:
             with runner.isolated_filesystem(temp_dir):
                 # Mock config loading
-                mock_load_config.return_value = ({"job_name": "test"}, "fine-tuning-job", "1.0")
+                mock_load_config.return_value = ({"job_name": "test"}, "hyp-recipe-job", "1.0")
                 mock_is_dynamic.return_value = True
                 
                 result = runner.invoke(reset)
                 
                 assert result.exit_code == 0
-                mock_generate_config.assert_called_once_with(Path(".").resolve(), "fine-tuning-job", "1.0")
+                mock_generate_config.assert_called_once_with(Path(".").resolve(), "hyp-recipe-job", "1.0")
                 assert "config.yaml reset: all fields set to default values" in result.output
 
     @patch('sagemaker.hyperpod.cli.commands.init.is_dynamic_template')

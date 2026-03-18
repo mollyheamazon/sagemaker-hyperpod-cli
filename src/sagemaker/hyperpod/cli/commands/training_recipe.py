@@ -12,7 +12,7 @@ from pathlib import Path
 from sagemaker.hyperpod.cli.init_utils import load_dynamic_schema
 from sagemaker.hyperpod.common.utils import handle_exception
 from sagemaker.hyperpod.cli.type_handler_utils import is_undefined_value
-from sagemaker.hyperpod.cli.fine_tuning_utils import (
+from sagemaker.hyperpod.cli.recipe_utils import (
     _fetch_recipe_from_hub, _download_s3_content, _download_s3_json,
     _validate_and_convert_value, _collect_all_parameters_interactively,
     _submit_k8s_resources, _render_k8s_template, _get_sagemaker_client,
@@ -191,7 +191,7 @@ def _init_training_job(directory: str, job_type: str, model_name: str, technique
         return False
 
 def _configure_dynamic_template(ctx, option, value, dir_path):
-    """Handle configure for dynamic templates (fine-tuning)"""
+    """Handle configure for dynamic templates (recipe)"""
     config_path = dir_path / "config.yaml"
     spec_path = dir_path / ".override_spec.json"
     
@@ -249,7 +249,7 @@ def _configure_dynamic_template(ctx, option, value, dir_path):
 
 
 def _create_dynamic_template(dir_path: Path, config_data: dict):
-    """Handle create for dynamic templates (fine-tuning)"""
+    """Handle create for dynamic templates (recipe)"""
     try:
         # Validate config first
         _validate_dynamic_template(dir_path)
@@ -296,16 +296,16 @@ def _create_dynamic_template(dir_path: Path, config_data: dict):
         sys.exit(1)
 
 
-# @click.command("fine-tuning-job")
+# @click.command("hyp-recipe-job")
 # @click.option("--model-name", help="Model name from SageMaker Public Hub [required]")
-# @click.option("--technique", help="Customization technique [required]")
+# @click.option("--technique", help="Customization technique [optional]")
 # @click.option("--instance-type", help="Instance type [required]")
-# @_hyperpod_telemetry_emitter(Feature.HYPERPOD_CLI, "create_finetuningjob_cli")
+# @_hyperpod_telemetry_emitter(Feature.HYPERPOD_CLI, "create_recipejob_cli")
 # @handle_cli_exceptions()
-# def create_fine_tuning_job_interactive(model_name: str, technique: str, instance_type: str) -> bool:
-#     """Create a fine-tuning job from recipes with interactive session"""
-#     if not model_name or not technique or not instance_type:
-#         click.secho("❌ --model-name, --technique, and --instance-type are required for fine-tuning-job", fg="red")
+# def create_recipe_job_interactive(model_name: str, technique: str, instance_type: str) -> bool:
+#     """Create a recipe job from recipes with interactive session"""
+#     if not model_name or not instance_type:
+#         click.secho("❌ --model-name and --instance-type are required for hyp-recipe-job", fg="red")
 #         return False
 #     
 #     try:
@@ -313,7 +313,7 @@ def _create_dynamic_template(dir_path: Path, config_data: dict):
 #         s3_client = _get_s3_client()
 #         
 #         # Fetch and validate recipe
-#         matching_recipe = _fetch_recipe_from_hub(sagemaker_client, model_name, "fine-tuning-job", technique, instance_type)
+#         matching_recipe = _fetch_recipe_from_hub(sagemaker_client, model_name, "hyp-recipe-job", technique, instance_type)
 #         
 #         # Get override spec from S3
 #         override_params_uri = matching_recipe.get('HpEksOverrideParamsS3Uri')
@@ -324,9 +324,10 @@ def _create_dynamic_template(dir_path: Path, config_data: dict):
 #         spec = _download_s3_json(s3_client, override_params_uri)
 #         
 #         # Interactive configuration
-#         click.secho(f"\n🚀 Interactive Fine-Tuning Job Creation", fg="green", bold=True)
+#         click.secho(f"\n🚀 Interactive Recipe Job Creation", fg="green", bold=True)
 #         click.secho(f"Model: {model_name}", fg="blue")
-#         click.secho(f"Technique: {technique}", fg="blue") 
+#         if technique:
+#             click.secho(f"Technique: {technique}", fg="blue") 
 #         click.secho(f"Instance Type: {instance_type}", fg="blue")
 #         click.secho("\nConfigure the following parameters:\n", fg="yellow")
 #         
@@ -347,7 +348,7 @@ def _create_dynamic_template(dir_path: Path, config_data: dict):
 #         click.secho("🚀 Submitting job to Kubernetes...", fg="yellow")
 #         _submit_k8s_resources(custom_api, rendered)
 #         
-#         click.secho("✅ Fine-tuning job created successfully!", fg="green", bold=True)
+#         click.secho("✅ Recipe job created successfully!", fg="green", bold=True)
 #         return True
 #         
 #     except Exception as e:

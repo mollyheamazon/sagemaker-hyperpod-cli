@@ -1,4 +1,4 @@
-"""Reusable utilities for fine-tuning job operations."""
+"""Reusable utilities for recipe job operations."""
 
 import json
 import yaml
@@ -27,8 +27,7 @@ def _fetch_recipe_from_hub(sagemaker_client, model_name: str, job_type: str, tec
     
     # Map job types to recipe types
     job_type_mapping = {
-        "fine-tuning-job": "FineTuning",
-        "evaluation-job": "Evaluation"
+        "hyp-recipe-job": "FineTuning",
     }
     
     recipe_type = job_type_mapping.get(job_type)
@@ -39,8 +38,8 @@ def _fetch_recipe_from_hub(sagemaker_client, model_name: str, job_type: str, tec
     matching_recipes = [recipe for recipe in recipe_collection 
                        if recipe.get('Type') == recipe_type]
     
-    # For fine-tuning jobs, also filter by technique
-    if job_type == "fine-tuning-job" and technique:
+    # For recipe jobs, also filter by technique if provided
+    if technique:
         matching_recipes = [recipe for recipe in matching_recipes
                            if recipe.get('CustomizationTechnique') == technique]
         
@@ -220,8 +219,9 @@ def _render_k8s_template(template_content: str, config_data: Dict[str, Any]) -> 
 def _collect_all_parameters_interactively(spec: Dict[str, Any]) -> Dict[str, Any]:
     """Collect all parameters interactively from user."""
     config_data = {}
+    sorted_spec = sorted(spec.items(), key=lambda x: (not x[1].get('required', False), x[0]))
     
-    for key, param_spec in spec.items():
+    for key, param_spec in sorted_spec:
         param_key, param_value = _collect_parameter_interactively(key, param_spec)
         if param_value is not None:
             config_data[param_key] = param_value
@@ -240,10 +240,7 @@ def _get_sagemaker_client():
     """Get cached SageMaker client."""
     global _sagemaker_client
     if _sagemaker_client is None:
-        _sagemaker_client = boto3.client(
-            "sagemaker",
-            endpoint_url="https://sagemaker.beta.us-west-2.ml-platform.aws.a2z.com"
-        )
+        _sagemaker_client = boto3.client("sagemaker")
     return _sagemaker_client
 
 
@@ -322,8 +319,7 @@ def _generate_dynamic_config_yaml(dir_path: Path, template: str, version: str = 
     
     # Try to preserve existing metadata from current config
     existing_model = model_name
-    existing_technique = technique  
-    existing_instance_type = instance_type
+    existing_technique = technique
     
     config_path = dir_path / 'config.yaml'
     if config_path.exists():
@@ -334,8 +330,6 @@ def _generate_dynamic_config_yaml(dir_path: Path, template: str, version: str = 
                         existing_model = line.replace('# model: ', '').strip()
                     elif line.startswith('# fine tune technique: ') and not existing_technique:
                         existing_technique = line.replace('# fine tune technique: ', '').strip()
-                    elif line.startswith('# instance type: ') and not existing_instance_type:
-                        existing_instance_type = line.replace('# instance type: ', '').strip()
         except:
             pass  # If reading fails, use provided values
     
@@ -345,11 +339,23 @@ def _generate_dynamic_config_yaml(dir_path: Path, template: str, version: str = 
             f.write(f"# model: {existing_model}\n")
         if existing_technique:
             f.write(f"# fine tune technique: {existing_technique}\n")
-        if existing_instance_type:
-            f.write(f"# instance type: {existing_instance_type}\n")
         f.write("\n")
         
-        for key, param_spec in spec.items():
+        # Priority fields that users edit most often appear first
+        priority_fields = [
+            'name', 'namespace', 'model_name_or_path', 'instance_type',
+            'training_data_name', 'data_path',
+            'validation_data_name', 'validation_data_path',
+            'output_path', 'resume_from_path', 'results_directory',
+            'image', 'job_name',
+        ]
+        sorted_spec = sorted(spec.items(), key=lambda x: (
+            x[0] not in priority_fields,
+            priority_fields.index(x[0]) if x[0] in priority_fields else len(priority_fields),
+            not x[1].get('required', False),
+            x[0],
+        ))
+        for key, param_spec in sorted_spec:
             default_value = param_spec.get('default')
             param_type = param_spec.get('type', 'string')
             min_val = param_spec.get('min')
@@ -358,8 +364,8 @@ def _generate_dynamic_config_yaml(dir_path: Path, template: str, version: str = 
             required = param_spec.get('required', False)
             
             # Override instance_type field with user input if provided
-            if key == 'instance_type' and existing_instance_type:
-                default_value = existing_instance_type
+            if key == 'instance_type' and instance_type:
+                default_value = instance_type
             
             if description:
                 f.write(f"# {description}\n")

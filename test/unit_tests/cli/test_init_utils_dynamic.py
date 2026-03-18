@@ -21,7 +21,7 @@ class TestIsDynamicTemplate:
             # Create .override_spec.json file
             (temp_path / ".override_spec.json").write_text('{"job_name": {"type": "string"}}')
             
-            result = is_dynamic_template("fine-tuning-job", temp_path)
+            result = is_dynamic_template("hyp-recipe-job", temp_path)
             assert result is True
 
     def test_is_dynamic_template_false_no_spec_file(self):

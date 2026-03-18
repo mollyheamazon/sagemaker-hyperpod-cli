@@ -15,11 +15,16 @@ from sagemaker.hyperpod.cli.type_handler_utils import is_undefined_value
 
 def _fetch_recipe_from_hub(sagemaker_client, model_name: str, job_type: str, technique: str = None, instance_type: str = None) -> Dict[str, Any]:
     """Fetch and validate recipe from SageMaker Hub."""
-    request = {
-        "HubName": "SageMakerPublicHub",
-        "HubContentType": "Model",
-        "HubContentName": model_name
-    }
+    if model_name.startswith("arn:"):
+        request = {
+            "HubContentArn": model_name,
+        }
+    else:
+        request = {
+            "HubName": "SageMakerPublicHub",
+            "HubContentType": "Model",
+            "HubContentName": model_name,
+        }
     
     describe_response = sagemaker_client.describe_hub_content(**request)
     hub_content_doc = json.loads(describe_response.get('HubContentDocument', '{}'))

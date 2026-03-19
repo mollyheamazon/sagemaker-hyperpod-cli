@@ -180,7 +180,7 @@ class TestInitTrainingJob:
             mock_sagemaker.describe_hub_content.return_value = {
                 'HubContentDocument': json.dumps({
                     'RecipeCollection': [{
-                        'Type': 'Evaluation',
+                        'Type': 'FineTuning',
                         'SupportedInstanceTypes': ['ml.p4d.24xlarge'],
                         'HpEksOverrideParamsS3Uri': 's3://bucket/override.json',
                         'HpEksPayloadTemplateS3Uri': 's3://bucket/template.yaml'
@@ -326,7 +326,7 @@ class TestFetchRecipeFromHub:
         mock_client.describe_hub_content.return_value = {
             'HubContentDocument': json.dumps({
                 'RecipeCollection': [{
-                    'Type': 'Evaluation',
+                    'Type': 'FineTuning',
                     'SupportedInstanceTypes': ['ml.p4d.24xlarge']
                 }]
             })
@@ -334,7 +334,7 @@ class TestFetchRecipeFromHub:
         
         result = _fetch_recipe_from_hub(mock_client, "test-model", "hyp-recipe-job", None, "ml.p4d.24xlarge")
         
-        assert result['Type'] == 'Evaluation'
+        assert result['Type'] == 'FineTuning'
         assert 'ml.p4d.24xlarge' in result['SupportedInstanceTypes']
 
 
@@ -600,7 +600,6 @@ class TestClientManagement:
         assert client == mock_client
         mock_boto3_client.assert_called_once_with(
             "sagemaker",
-            endpoint_url="https://sagemaker.beta.us-west-2.ml-platform.aws.a2z.com"
         )
 
     @patch('sagemaker.hyperpod.cli.recipe_utils.boto3.client')

@@ -39,7 +39,7 @@ from sagemaker.hyperpod.cli.commands.training_recipe import _init_training_job, 
 @click.argument("template", type=click.Choice(list(TEMPLATES.keys())))
 @click.argument("directory", type=click.Path(file_okay=False), default=".")
 @click.option("--version", "-v", default=None, help="Schema version")
-@click.option("--model-name", help="Model name from SageMaker Public Hub (for recipe jobs)")
+@click.option("--model-id", help="Model ID - supports JumpStart format (e.g. meta-textgeneration-llama-3-2-1b) or HuggingFace format (e.g. meta-llama/Llama-2-7b)")
 @click.option("--technique", help="Customization technique (for hyp-recipe-job only)")
 @click.option("--instance-type", help="Instance type (optional - if not provided, interactive cluster selection will be used)")
 @_hyperpod_telemetry_emitter(Feature.HYPERPOD_CLI, "init_template_cli")
@@ -47,7 +47,7 @@ def init(
     template: str,
     directory: str,
     version: str,
-    model_name: str,
+    model_id: str,
     technique: str,
     instance_type: str,
 ):
@@ -112,11 +112,11 @@ def init(
 
     # Handle dynamic job templates after validation
     if template in ["hyp-recipe-job"]:
-        if not model_name:
-            click.secho(f"❌ --model-name is required for {template}", fg="red")
+        if not model_id:
+            click.secho(f"❌ --model-id is required for {template}", fg="red")
             return
         
-        if _init_training_job(directory, template, model_name, technique, instance_type):
+        if _init_training_job(directory, template, model_id, technique, instance_type):
             click.secho(f"✔️ {template.replace('-', ' ').title()} initialized successfully", fg="green")
             click.secho("📄 Created: config.yaml, k8s.jinja", fg="green")
         return

@@ -13,46 +13,83 @@ from sagemaker.hyperpod.cli.init_utils import load_dynamic_schema
 from sagemaker.hyperpod.cli.type_handler_utils import is_undefined_value
 
 
+import re
+
+
+_HUB_CONTENT_ARN_PATTERN = re.compile(
+    r"^arn:aws(-[\w]+)*:sagemaker:[a-z0-9\-]+:\d{12}:hub-content/[^/]+/[^/]+/[^/]+(/\d+)?$"
+)
+
+
+def _is_hub_content_arn(model_id: str) -> bool:
+    """Check if model_id is a valid SageMaker Hub Content ARN."""
+    return bool(_HUB_CONTENT_ARN_PATTERN.match(model_id))
+
+
+def _fetch_recipe_from_private_hub(sagemaker_client, hub_content_arn: str) -> Dict[str, Any]:
+    """Fetch hub content document using a Hub Content ARN.
+    
+    Args:
+        sagemaker_client: Boto3 SageMaker client.
+        hub_content_arn: A valid SageMaker Hub Content ARN.
+        
+    Returns:
+        Parsed HubContentDocument as a dict.
+        
+    Raises:
+        ValueError: If the ARN format is invalid.
+    """
+    if not _is_hub_content_arn(hub_content_arn):
+        raise ValueError(
+            f"Invalid Hub Content ARN format: '{hub_content_arn}'. "
+            f"Expected format: arn:aws:sagemaker:<region>:<account>:hub-content/<hub>/<type>/<name>"
+        )
+    
+    response = sagemaker_client.describe_hub_content(HubContentArn=hub_content_arn)
+    return json.loads(response.get('HubContentDocument', '{}'))
+
+
 def _fetch_recipe_from_hub(sagemaker_client, model_name: str, job_type: str, technique: str = None, instance_type: str = None) -> Dict[str, Any]:
-    """Fetch and validate recipe from SageMaker Hub."""
-    if model_name.startswith("arn:"):
-        request = {
-            "HubContentArn": model_name,
-        }
+    """Fetch and validate recipe from SageMaker Hub.
+    
+    Supports two model_name formats:
+    - ARN: arn:aws:sagemaker:region:account:hub-content/...
+    - JumpStart model ID: meta-textgeneration-llama-3-2-1b
+    """
+    if _is_hub_content_arn(model_name):
+        hub_content_doc = _fetch_recipe_from_private_hub(sagemaker_client, model_name)
     else:
         request = {
             "HubName": "SageMakerPublicHub",
             "HubContentType": "Model",
             "HubContentName": model_name,
         }
-    
-    describe_response = sagemaker_client.describe_hub_content(**request)
-    hub_content_doc = json.loads(describe_response.get('HubContentDocument', '{}'))
+        response = sagemaker_client.describe_hub_content(**request)
+        hub_content_doc = json.loads(response.get('HubContentDocument', '{}'))
     recipe_collection = hub_content_doc.get('RecipeCollection', [])
     
-    # Map job types to recipe types
-    job_type_mapping = {
-        "hyp-recipe-job": "FineTuning",
+    # Resolve technique aliases to canonical names (case-insensitive)
+    _TECHNIQUE_ALIASES = {
+        "deterministic": "DeterministicEvaluation",
+        "llmaj": "LLMAJEvaluation",
     }
+    technique_lower = technique.lower() if technique else ""
+    technique = _TECHNIQUE_ALIASES.get(technique_lower, technique.upper() if technique_lower not in _TECHNIQUE_ALIASES else technique)
     
-    recipe_type = job_type_mapping.get(job_type)
-    if not recipe_type:
-        raise ValueError(f"Unsupported job type: {job_type}")
-    
-    # Find recipes matching the job type
-    matching_recipes = [recipe for recipe in recipe_collection 
-                       if recipe.get('Type') == recipe_type]
-    
-    # For recipe jobs, also filter by technique if provided
-    if technique:
-        matching_recipes = [recipe for recipe in matching_recipes
-                           if recipe.get('CustomizationTechnique') == technique]
-        
-        if not matching_recipes:
-            raise ValueError(f"No recipe found for technique: {technique}")
+    # Filter recipes by technique (case-insensitive match).
+    #   FineTuning techniques: SFT, DPO, RLAIF, RLVR, etc. (matched via CustomizationTechnique)
+    #   Evaluation types: DeterministicEvaluation, LLMAJEvaluation, etc. (matched via EvaluationType)
+    matching_recipes = [
+        r for r in recipe_collection
+        if (r.get('CustomizationTechnique') or '').upper() == technique.upper()
+        or r.get('EvaluationType') == technique
+    ]
     
     if not matching_recipes:
-        raise ValueError(f"No recipe found for job type: {job_type}")
+        available = set()
+        for r in recipe_collection:
+            available.add(r.get('CustomizationTechnique') or r.get('EvaluationType') or '(none)')
+        raise ValueError(f"No recipe found for technique: {technique}. Available: {sorted(available)}")
     
     # If instance type is provided, find recipe that supports it
     if instance_type:

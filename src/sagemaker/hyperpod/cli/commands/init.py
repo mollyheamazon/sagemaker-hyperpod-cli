@@ -40,7 +40,7 @@ from sagemaker.hyperpod.cli.commands.training_recipe import _init_training_job, 
 @click.argument("directory", type=click.Path(file_okay=False), default=".")
 @click.option("--version", "-v", default=None, help="Schema version")
 @click.option("--model-name", help="Model name from SageMaker Public Hub (for recipe jobs)")
-@click.option("--technique", help="Customization technique (for hyp-recipe-job only)")
+@click.option("--technique", help="Recipe technique: SFT, DPO, RLAIF, RLVR for fine-tuning; deterministic, LLMAJ for evaluation")
 @click.option("--instance-type", help="Instance type (optional - if not provided, interactive cluster selection will be used)")
 @_hyperpod_telemetry_emitter(Feature.HYPERPOD_CLI, "init_template_cli")
 def init(
@@ -114,6 +114,9 @@ def init(
     if template in ["hyp-recipe-job"]:
         if not model_name:
             click.secho(f"❌ --model-name is required for {template}", fg="red")
+            return
+        if not technique:
+            click.secho(f"❌ --technique is required for {template} (e.g. SFT, DPO, deterministic, LLMAJ)", fg="red")
             return
         
         if _init_training_job(directory, template, model_name, technique, instance_type):

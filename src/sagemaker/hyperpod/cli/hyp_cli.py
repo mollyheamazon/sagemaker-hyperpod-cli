@@ -174,7 +174,7 @@ def portforward():
 
 @cli.group(cls=CLICommand)
 def list_pods():
-    """List pods for endpoints or pytorch jobs."""
+    """List pods for endpoints, pytorch jobs, or recipe jobs."""
     pass
 
 
@@ -198,7 +198,7 @@ def get_operator_logs():
 
 @cli.group(cls=CLICommand)
 def exec():
-    """Execute commands in pods for endpoints or pytorch jobs."""
+    """Execute commands in pods for endpoints, pytorch jobs, or recipe jobs."""
     pass
 
 
@@ -295,6 +295,9 @@ cli.add_command(get_monitoring)
 cli.add_command(list_accelerator_partition_type)
 
 exec.add_command(pytorch_exec)
+recipe_exec_cmd = copy.copy(pytorch_exec)
+recipe_exec_cmd.help = "Execute commands in pods associated with a HyperPod recipe job."
+exec.add_command(recipe_exec_cmd, name="hyp-recipe-job")
 
 if __name__ == "__main__":
     cli()

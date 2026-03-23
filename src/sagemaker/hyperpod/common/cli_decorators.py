@@ -253,7 +253,7 @@ def _check_job_exists_for_pod_validation(job_name: str, namespace: str, raw_reso
         
         # Construct the describe command for the resource type
         # Use appropriate parameter name based on resource type
-        if raw_resource_type == "pytorch-job":
+        if raw_resource_type in ("pytorch-job", "recipe-job"):
             cmd = ["hyp", "describe", f"hyp-{raw_resource_type}", "--job-name", job_name]
         else:
             cmd = ["hyp", "describe", f"hyp-{raw_resource_type}", "--name", job_name]

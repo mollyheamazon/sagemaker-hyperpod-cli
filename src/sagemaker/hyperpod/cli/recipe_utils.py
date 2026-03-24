@@ -55,22 +55,67 @@ def _fetch_recipe_from_private_hub(sagemaker_client, hub_content_arn: str) -> Di
     return json.loads(response.get('HubContentDocument', '{}'))
 
 
-def _fetch_recipe_from_hub(sagemaker_client, model_name: str, job_type: str, technique: str = None, instance_type: str = None) -> Dict[str, Any]:
-    """Fetch and validate recipe from SageMaker Hub.
-    
-    Supports two model_name formats:
-    - ARN: arn:aws:sagemaker:region:account:hub-content/...
-    - JumpStart model ID: meta-textgeneration-llama-3-2-1b
+def _resolve_huggingface_model_id(sagemaker_client, hf_model_id: str) -> str:
+    """Resolve a HuggingFace model ID to a JumpStart Hub content name.
+
+    Strategy: dynamic search first (@recipe: keyword filter), then static
+    fallback for models whose names don't derive cleanly to a search term.
+    Raises ValueError with a clean "not supported" message for unknown models.
     """
-    if _is_hub_content_arn(model_name):
-        hub_content_doc = _fetch_recipe_from_private_hub(sagemaker_client, model_name)
+    # Static fallback for models where name derivation fails the search.
+    # Only contains edge cases — not all models.
+    _FALLBACK = {
+        "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B": "deepseek-llm-r1-distill-qwen-32b",
+        "Qwen/Qwen3-0.6B":                          "huggingface-reasoning-qwen3-06b",
+    }
+
+    raw = hf_model_id.split('/')[-1].lower()
+    search_term = re.sub(r'[^a-z0-9\-]', '-', raw).strip('-')
+
+    response = sagemaker_client.list_hub_contents(
+        HubName='SageMakerPublicHub',
+        HubContentType='Model',
+        NameContains=search_term,
+        MaxResults=20,
+    )
+    recipe_matches = [
+        m for m in response.get('HubContentSummaries', [])
+        if any(k.startswith('@recipe:') for k in m.get('HubContentSearchKeywords', []))
+    ]
+
+    if len(recipe_matches) == 1:
+        return recipe_matches[0]['HubContentName']
+
+    if hf_model_id in _FALLBACK:
+        return _FALLBACK[hf_model_id]
+
+    raise ValueError(
+        f"'{hf_model_id}' may not be supported for HyperPod recipes, or could not be resolved.\n"
+        f"If you are using a HuggingFace model ID, try the JumpStart Hub model ID instead and retry.\n"
+        f"To find supported model IDs: https://docs.aws.amazon.com/cli/latest/reference/sagemaker/list-hub-contents.html"
+    )
+
+
+def _fetch_recipe_from_hub(sagemaker_client, model_id: str, job_type: str, technique: str = None, instance_type: str = None) -> Dict[str, Any]:
+    """Fetch and validate recipe from SageMaker Hub.
+
+    Supports three model_id formats:
+    - JumpStart model ID: meta-textgeneration-llama-3-2-1b
+    - HuggingFace model ID: meta-llama/Llama-3.1-8B-Instruct (resolved dynamically via search)
+    - Hub Content ARN: arn:aws:sagemaker:... (private or public hub)
+    """
+    if _is_hub_content_arn(model_id):
+        hub_content_doc = _fetch_recipe_from_private_hub(sagemaker_client, model_id)
     else:
-        request = {
-            "HubName": "SageMakerPublicHub",
-            "HubContentType": "Model",
-            "HubContentName": model_name,
-        }
-        response = sagemaker_client.describe_hub_content(**request)
+        if '/' in model_id:
+            resolved_id = _resolve_huggingface_model_id(sagemaker_client, model_id)
+        else:
+            resolved_id = model_id
+        response = sagemaker_client.describe_hub_content(
+            HubName="SageMakerPublicHub",
+            HubContentType="Model",
+            HubContentName=resolved_id,
+        )
         hub_content_doc = json.loads(response.get('HubContentDocument', '{}'))
     recipe_collection = hub_content_doc.get('RecipeCollection', [])
     

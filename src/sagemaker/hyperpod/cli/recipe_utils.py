@@ -13,86 +13,76 @@ from sagemaker.hyperpod.cli.init_utils import load_dynamic_schema
 from sagemaker.hyperpod.cli.type_handler_utils import is_undefined_value
 
 
-def _is_huggingface_model_id(model_id: str) -> bool:
-    """Check if model_id is in HuggingFace format (contains '/')."""
-    return '/' in model_id and not model_id.startswith("arn:")
-
-
 def _resolve_huggingface_model_id(sagemaker_client, hf_model_id: str) -> str:
     """Resolve a HuggingFace model ID to a JumpStart Hub content name.
-    
-    Converts HuggingFace format (e.g. meta-llama/Llama-3.2-1B) to a search
-    term and matches against SageMakerPublicHub content names.
+
+    Strategy: dynamic search first (@recipe: keyword filter), then static
+    fallback for models whose names don't derive cleanly to a search term.
+    Raises ValueError with a clean "not supported" message for unknown models.
     """
     import re
-    # Convert "meta-llama/Llama-3.2-1B" -> "llama-3-2-1b" for NameContains search
-    raw_name = hf_model_id.split('/')[-1].lower()
-    sanitized = re.sub(r'\.', '-', raw_name)
-    sanitized = re.sub(r'[^a-zA-Z0-9\-]', '', sanitized)
-    
-    if not sanitized:
-        raise ValueError(f"Could not derive a valid search term from '{hf_model_id}'.")
-    
-    params = {
-        "HubName": "SageMakerPublicHub",
-        "HubContentType": "Model",
-        "NameContains": sanitized,
-        "MaxResults": 50,
+
+    # Static fallback for models where name derivation fails the search.
+    # Only contains edge cases — not all models.
+    _FALLBACK = {
+        "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B": "deepseek-llm-r1-distill-qwen-32b",
+        "Qwen/Qwen3-0.6B":                          "huggingface-reasoning-qwen3-06b",
     }
-    
-    response = sagemaker_client.list_hub_contents(**params)
-    summaries = response.get("HubContentSummaries", [])
-    
-    if not summaries:
-        raise ValueError(
-            f"Could not find a JumpStart model matching HuggingFace ID '{hf_model_id}'. "
-            f"Please verify the ID or use the JumpStart model ID directly."
-        )
-    
-    # Filter to suffix matches first
-    suffix_matches = [s for s in summaries if s["HubContentName"].endswith(sanitized)]
-    
-    # Among suffix matches, prefer ones with recipe/fine_tuning capability
-    for s in suffix_matches:
-        keywords = s.get("HubContentSearchKeywords", [])
-        if any(k.startswith("@recipe:") or k == "@capability:fine_tuning" for k in keywords):
-            return s["HubContentName"]
-    
-    # Fall back to first suffix match
-    if suffix_matches:
-        return suffix_matches[0]["HubContentName"]
-    
+
+    raw = hf_model_id.split('/')[-1].lower()
+    search_term = re.sub(r'[^a-z0-9\-]', '-', raw).strip('-')
+
+    response = sagemaker_client.list_hub_contents(
+        HubName='SageMakerPublicHub',
+        HubContentType='Model',
+        NameContains=search_term,
+        MaxResults=20,
+    )
+    recipe_matches = [
+        m for m in response.get('HubContentSummaries', [])
+        if any(k.startswith('@recipe:') for k in m.get('HubContentSearchKeywords', []))
+    ]
+
+    if len(recipe_matches) == 1:
+        return recipe_matches[0]['HubContentName']
+
+    # Fall back to static table for known edge cases
+    if hf_model_id in _FALLBACK:
+        return _FALLBACK[hf_model_id]
+
     raise ValueError(
-        f"Could not find a JumpStart model matching HuggingFace ID '{hf_model_id}'. "
-        f"Candidates found: {[s['HubContentName'] for s in summaries]}. "
-        f"Please verify the ID or use the JumpStart model ID directly."
+        f"'{hf_model_id}' may not be supported for HyperPod recipes, or could not be resolved.\n"
+        f"If you are using a HuggingFace model ID, try the JumpStart Hub model ID instead and retry.\n"
+        f"To find supported model IDs: https://docs.aws.amazon.com/cli/latest/reference/sagemaker/list-hub-contents.html"
     )
 
 
 def _fetch_recipe_from_hub(sagemaker_client, model_id: str, job_type: str, technique: str = None, instance_type: str = None) -> Dict[str, Any]:
     """Fetch and validate recipe from SageMaker Hub.
-    
+
     Supports three model_id formats:
-    - ARN: arn:aws:sagemaker:...
     - JumpStart model ID: meta-textgeneration-llama-3-2-1b
-    - HuggingFace model ID: meta-llama/Llama-2-7b
+    - HuggingFace model ID: meta-llama/Llama-3.1-8B-Instruct (resolved dynamically via search)
+    - Hub Content ARN: arn:aws:sagemaker:...
+
+    HuggingFace ID resolution uses @recipe: keyword filtering. If resolution
+    is ambiguous, a ValueError is raised asking the user to provide the
+    JumpStart model ID directly.
     """
     if model_id.startswith("arn:"):
-        request = {
-            "HubContentArn": model_id,
-        }
-    elif _is_huggingface_model_id(model_id):
-        resolved_name = _resolve_huggingface_model_id(sagemaker_client, model_id)
-        request = {
-            "HubName": "SageMakerPublicHub",
-            "HubContentType": "Model",
-            "HubContentName": resolved_name,
-        }
+        resolved_id = model_id
+    elif '/' in model_id:
+        resolved_id = _resolve_huggingface_model_id(sagemaker_client, model_id)
+    else:
+        resolved_id = model_id
+
+    if resolved_id.startswith("arn:"):
+        request = {"HubContentArn": resolved_id}
     else:
         request = {
             "HubName": "SageMakerPublicHub",
             "HubContentType": "Model",
-            "HubContentName": model_id,
+            "HubContentName": resolved_id,
         }
     
     describe_response = sagemaker_client.describe_hub_content(**request)

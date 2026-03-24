@@ -17,7 +17,7 @@ import re
 
 
 _HUB_CONTENT_ARN_PATTERN = re.compile(
-    r"^arn:aws(-[\w]+)*:sagemaker:[a-z0-9\-]+:\d{12}:hub-content/[^/]+/[^/]+/[^/]+(/\d+)?$"
+    r"^arn:aws(-[\w]+)*:sagemaker:[a-z0-9\-]+:(\d{12}|aws):hub-content/[^/]+/[^/]+/[^/]+(/[\d.]+)?$"
 )
 
 
@@ -26,26 +26,32 @@ def _is_hub_content_arn(model_id: str) -> bool:
     return bool(_HUB_CONTENT_ARN_PATTERN.match(model_id))
 
 
-def _fetch_recipe_from_private_hub(sagemaker_client, hub_content_arn: str) -> Dict[str, Any]:
-    """Fetch hub content document using a Hub Content ARN.
-    
-    Args:
-        sagemaker_client: Boto3 SageMaker client.
-        hub_content_arn: A valid SageMaker Hub Content ARN.
-        
-    Returns:
-        Parsed HubContentDocument as a dict.
-        
-    Raises:
-        ValueError: If the ARN format is invalid.
+def _parse_hub_content_arn(arn: str) -> dict:
+    """Parse a Hub Content ARN into describe_hub_content parameters.
+
+    ARN format: arn:aws:sagemaker:<region>:<account>:hub-content/<hub>/<type>/<name>[/<version>]
     """
+    path = arn.split(":hub-content/", 1)[1]
+    parts = path.split("/")
+    params = {
+        "HubName": parts[0],
+        "HubContentType": parts[1],
+        "HubContentName": parts[2],
+    }
+    if len(parts) >= 4:
+        params["HubContentVersion"] = parts[3]
+    return params
+
+
+def _fetch_recipe_from_private_hub(sagemaker_client, hub_content_arn: str) -> Dict[str, Any]:
+    """Fetch hub content document using a Hub Content ARN."""
     if not _is_hub_content_arn(hub_content_arn):
         raise ValueError(
             f"Invalid Hub Content ARN format: '{hub_content_arn}'. "
             f"Expected format: arn:aws:sagemaker:<region>:<account>:hub-content/<hub>/<type>/<name>"
         )
-    
-    response = sagemaker_client.describe_hub_content(HubContentArn=hub_content_arn)
+    params = _parse_hub_content_arn(hub_content_arn)
+    response = sagemaker_client.describe_hub_content(**params)
     return json.loads(response.get('HubContentDocument', '{}'))
 
 

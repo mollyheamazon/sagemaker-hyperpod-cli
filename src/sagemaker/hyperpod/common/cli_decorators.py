@@ -416,6 +416,10 @@ def _is_valid_jumpstart_model_id(model_id: str) -> bool:
     Check if model-id exists in JumpStart registry.
     Uses same SageMaker API that's already being called during creation.
     """
+    # ARNs are for private hubs — skip JumpStart public hub validation
+    if model_id.startswith("arn:"):
+        return True
+
     try:
         import boto3
         from botocore.exceptions import ClientError

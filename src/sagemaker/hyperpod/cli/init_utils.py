@@ -8,7 +8,7 @@ import os
 import yaml
 import sys
 from pathlib import Path
-from sagemaker.hyperpod.cli.type_handler_utils import convert_cli_value, to_click_type, is_complex_type, DEFAULT_TYPE_HANDLER, create_click_option, is_undefined_value
+from sagemaker.hyperpod.cli.type_handler_utils import convert_cli_value, to_click_type, is_complex_type, DEFAULT_TYPE_HANDLER, is_undefined_value
 from pydantic import ValidationError
 from typing import List, Any
 from sagemaker.hyperpod.cli.constants.init_constants import (
@@ -144,9 +144,15 @@ def _load_schema_for_version(version: str, schema_pkg: str) -> dict:
     return json.loads(raw)
 
 
-def _get_handler_for_field(template_name, field_name):
+def _get_handler_for_field(template_name, field_name, version=None):
     """Get appropriate handler for a field using template.field mapping."""
     if template_name and field_name:
+        # Try version-scoped key first, then fall back to unversioned
+        if version:
+            scoped_key = f"{template_name}.{version}.{field_name}"
+            handler = SPECIAL_FIELD_HANDLERS.get(scoped_key)
+            if handler:
+                return handler
         scoped_key = f"{template_name}.{field_name}"
         handler = SPECIAL_FIELD_HANDLERS.get(scoped_key, DEFAULT_TYPE_HANDLER)
         return handler
@@ -344,17 +350,15 @@ def _generate_standard_click_command(current_template: str, current_version: str
             field_type = getattr(field, 'annotation', str)
             required = False  # For configure, all fields should be optional
             default = getattr(field, 'default', None)
-            
+
             # Get description from union_props
             description = union_props.get(field_name, {}).get('description', '')
-            
-            # Create Click option
-            option = create_click_option(flag_name, field_type, required, default, description)
-            
-            # Add to function parameters
-            if not hasattr(wrapper, '__click_params__'):
-                wrapper.__click_params__ = []
-            wrapper.__click_params__.append(option)
+
+            # Use handler-based option config to correctly handle special types
+            # (volumes, security groups, etc. need multiple=True and JSON callbacks)
+            handler = _get_handler_for_field(current_template, field_name, version=current_version)
+            option_kwargs = _get_click_option_config(handler, field_type, default, required, description)
+            wrapper = click.option(f"--{flag_name}", **option_kwargs)(wrapper)
         
         return wrapper
     
@@ -384,7 +388,7 @@ def save_config_yaml(prefill: dict, comment_map: dict, directory: str):
                 f.write(f"# {comment}\n")
 
             val = prefill.get(key)
-            handler = _get_handler_for_field(template, key)
+            handler = _get_handler_for_field(template, key, version=prefill.get('version'))
             handler['write_to_yaml'](key, handler['from_dicts'](val) if val is not None else val, f)    
 
 
@@ -515,7 +519,7 @@ def validate_config_against_model(config_data: dict, template: str, version: str
         if model:
             # Unified handler approach
             for key in filtered_config:
-                handler = _get_handler_for_field(template, key)
+                handler = _get_handler_for_field(template, key, version=version)
                 filtered_config[key] = handler['from_dicts'](filtered_config[key])
 
             model(**filtered_config)
@@ -638,7 +642,7 @@ def build_config_from_schema(template: str, version: str, model_config=None, exi
                 continue            
 
             # Unified handler approach
-            handler = _get_handler_for_field(template, key)
+            handler = _get_handler_for_field(template, key, version=version)
 
             # Parse strings using appropriate handler
             if user_provided_fields and isinstance(val, str):

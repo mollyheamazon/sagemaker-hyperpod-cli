@@ -56,14 +56,17 @@ def is_undefined_value(value):
 
 
 def create_click_option(flag_name, field_type, required, default, description):
-    """Create a Click option from field information"""
+    """Create a Click option from field information.
+
+    Note: standard templates use _get_handler_for_field + _get_click_option_config instead.
+    This utility is kept for dynamic template option generation.
+    """
     click_type = to_click_type(field_type)
     opt_name = f"--{flag_name}"
-    
-    # Handle PydanticUndefinedType defaults
+
     if is_undefined_value(default):
         default = None
-    
+
     return click.Option(
         [opt_name],
         type=click_type,

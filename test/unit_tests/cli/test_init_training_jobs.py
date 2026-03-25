@@ -26,86 +26,84 @@ class TestInitTrainingJobCommands:
     def test_init_recipe_job_with_all_params(self, mock_init_training):
         """Test init hyp-recipe-job with all parameters"""
         mock_init_training.return_value = True
-        
+
         runner = CliRunner()
         with tempfile.TemporaryDirectory() as temp_dir:
             result = runner.invoke(init, [
                 'hyp-recipe-job', temp_dir,
-                '--model-name', 'test-model',
-                '--technique', 'lora',
+                '--model-id', 'test-model',
+                '--technique', 'SFT',
                 '--instance-type', 'ml.p4d.24xlarge'
             ])
-            
+
             assert result.exit_code == 0
             mock_init_training.assert_called_once_with(
-                temp_dir, 'hyp-recipe-job', 'test-model', 'lora', 'ml.p4d.24xlarge'
+                temp_dir, 'hyp-recipe-job', 'test-model', 'SFT', 'ml.p4d.24xlarge'
             )
-            assert "Hyp Recipe Job initialized successfully" in result.output
+            assert "initialized successfully" in result.output
 
     @patch('sagemaker.hyperpod.cli.commands.init._init_training_job')
     def test_init_recipe_job_without_technique(self, mock_init_training):
-        """Test init hyp-recipe-job without technique (technique is optional)"""
-        mock_init_training.return_value = True
-        
+        """Test init hyp-recipe-job without technique shows error (technique is required)"""
         runner = CliRunner()
         with tempfile.TemporaryDirectory() as temp_dir:
             result = runner.invoke(init, [
                 'hyp-recipe-job', temp_dir,
-                '--model-name', 'test-model',
+                '--model-id', 'test-model',
                 '--instance-type', 'ml.p4d.24xlarge'
             ])
-            
+
             assert result.exit_code == 0
-            mock_init_training.assert_called_once_with(
-                temp_dir, 'hyp-recipe-job', 'test-model', None, 'ml.p4d.24xlarge'
-            )
-            assert "Hyp Recipe Job initialized successfully" in result.output
+            assert "--technique is required" in result.output
+            mock_init_training.assert_not_called()
 
     @patch('sagemaker.hyperpod.cli.commands.init._init_training_job')
     def test_init_recipe_job_without_instance_type(self, mock_init_training):
-        """Test init hyp-recipe-job without instance type (should trigger interactive selection)"""
+        """Test init hyp-recipe-job without instance type (triggers interactive selection)"""
         mock_init_training.return_value = True
-        
+
         runner = CliRunner()
         with tempfile.TemporaryDirectory() as temp_dir:
             result = runner.invoke(init, [
                 'hyp-recipe-job', temp_dir,
-                '--model-name', 'test-model'
+                '--model-id', 'test-model',
+                '--technique', 'SFT',
             ])
-            
+
             assert result.exit_code == 0
             mock_init_training.assert_called_once_with(
-                temp_dir, 'hyp-recipe-job', 'test-model', None, None
+                temp_dir, 'hyp-recipe-job', 'test-model', 'SFT', None
             )
 
     def test_init_recipe_job_missing_model_name(self):
-        """Test init hyp-recipe-job without required model-name parameter"""
+        """Test init hyp-recipe-job without required model-id parameter"""
         runner = CliRunner()
         with tempfile.TemporaryDirectory() as temp_dir:
             result = runner.invoke(init, [
                 'hyp-recipe-job', temp_dir,
+                '--technique', 'SFT',
                 '--instance-type', 'ml.p4d.24xlarge'
             ])
-            
+
             assert result.exit_code == 0
-            assert "❌ --model-name is required for hyp-recipe-job" in result.output
+            assert "--model-id is required" in result.output
 
     @patch('sagemaker.hyperpod.cli.commands.init._init_training_job')
     def test_init_recipe_job_failure(self, mock_init_training):
         """Test init training job when initialization fails"""
         mock_init_training.return_value = False
-        
+
         runner = CliRunner()
         with tempfile.TemporaryDirectory() as temp_dir:
             result = runner.invoke(init, [
                 'hyp-recipe-job', temp_dir,
-                '--model-name', 'test-model',
-                '--technique', 'lora',
+                '--model-id', 'test-model',
+                '--technique', 'SFT',
                 '--instance-type', 'ml.p4d.24xlarge'
             ])
-            
+
             assert result.exit_code == 0
-            assert "Hyp Recipe Job initialized successfully" not in result.output
+            assert "initialized successfully" not in result.output
 
 
 class TestInitUtilsChanges:

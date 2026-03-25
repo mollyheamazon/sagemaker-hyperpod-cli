@@ -355,7 +355,7 @@ class TestValidateConfigAgainstModel:
             validate_config_against_model(config_data, 'hyp-cluster-stack', '1.0')
             
             # Verify handler was called
-            mock_get_handler.assert_called_with('hyp-cluster-stack', 'tags')
+            mock_get_handler.assert_called_with('hyp-cluster-stack', 'tags', version='1.0')
             mock_from_dicts.assert_called_with(['tag1', 'tag2'])
 
 

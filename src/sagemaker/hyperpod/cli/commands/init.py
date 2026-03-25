@@ -40,9 +40,9 @@ from sagemaker.hyperpod.cli.recipe_utils import _validate_dynamic_template, _gen
 @click.argument("template", type=click.Choice(list(TEMPLATES.keys())))
 @click.argument("directory", type=click.Path(file_okay=False), default=".")
 @click.option("--version", "-v", default=None, help="Schema version")
-@click.option("--model-id", help="Model ID - supports JumpStart format (e.g. meta-textgeneration-llama-3-2-1b) or HuggingFace format (e.g. meta-llama/Llama-2-7b)")
-@click.option("--technique", help="Customization technique (for hyp-recipe-job only)")
-@click.option("--instance-type", help="Instance type (optional - if not provided, interactive cluster selection will be used)")
+@click.option("--model-id", hidden=True, help="Model ID - supports JumpStart format (e.g. meta-textgeneration-llama-3-2-1b) or HuggingFace format (e.g. meta-llama/Llama-2-7b)")
+@click.option("--technique", hidden=True, help="Customization technique (for hyp-recipe-job only)")
+@click.option("--instance-type", hidden=True, help="Instance type (optional - if not provided, interactive cluster selection will be used)")
 @_hyperpod_telemetry_emitter(Feature.HYPERPOD_CLI, "init_template_cli")
 def init(
     template: str,
@@ -54,18 +54,37 @@ def init(
 ):
     """
     Initialize a TEMPLATE scaffold in DIRECTORY.
-    
+
     This command creates a complete project scaffold for the specified template type.
     It performs the following steps:
-    
+
+    \b
     1. Checks if the directory already contains a config.yaml and handles existing configurations
     2. Creates the target directory if it doesn't exist
     3. Generates a config.yaml file with schema-based default values
     4. Creates a template file (.jinja) for the specified template type
     5. Adds a README.md with usage instructions
-    
+
     The generated files provide a starting point for configuring and submitting
     jobs to SageMaker HyperPod clusters orchestrated by Amazon EKS.
+
+    Available templates:
+
+    \b
+      hyp-pytorch-job         PyTorch distributed training job
+      hyp-jumpstart-endpoint  JumpStart model inference endpoint
+      hyp-custom-endpoint     Custom model inference endpoint
+      cluster-stack           HyperPod EKS cluster CloudFormation stack
+      hyp-recipe-job          Fine-tuning/evaluation job from JumpStart Hub recipe
+
+    For hyp-recipe-job, the following options are available:
+
+    \b
+      --model-id       JumpStart model ID or HuggingFace model ID (required)
+      --technique      Fine-tuning: SFT, DPO, RLAIF, RLVR, CPT, PPO
+                       Evaluation: deterministic, LLMAJ (required)
+      --instance-type  Instance type to use. If not provided, an interactive
+                       cluster selection will be launched (optional)
     """
     # Original template initialization logic
     dir_path = Path(directory).resolve()

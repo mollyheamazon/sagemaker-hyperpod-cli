@@ -173,54 +173,32 @@ class TestInitTrainingJob:
     @patch('sagemaker.hyperpod.cli.commands.training_recipe._get_s3_client')
     @patch('sagemaker.hyperpod.cli.commands.training_recipe.click.secho')
     def test_init_recipe_job_no_technique(self, mock_secho, mock_get_s3_client, mock_get_sagemaker_client):
-        """Test successful recipe job initialization without technique"""
+        """Test that recipe job initialization fails when technique is None (technique is required)"""
         with tempfile.TemporaryDirectory() as temp_dir:
-            # Mock SageMaker client
             mock_sagemaker = MagicMock()
-            mock_sagemaker.describe_hub_content.return_value = {
-                'HubContentDocument': json.dumps({
-                    'RecipeCollection': [{
-                        'Type': 'FineTuning',
-                        'SupportedInstanceTypes': ['ml.p4d.24xlarge'],
-                        'HpEksOverrideParamsS3Uri': 's3://bucket/override.json',
-                        'HpEksPayloadTemplateS3Uri': 's3://bucket/template.yaml'
-                    }]
-                })
-            }
             mock_get_sagemaker_client.return_value = mock_sagemaker
-            
-            # Mock S3 client
-            mock_s3 = MagicMock()
-            mock_s3.get_object.side_effect = [
-                {'Body': MagicMock(read=lambda: json.dumps({"job_name": {"type": "string", "required": True}}).encode())},
-                {'Body': MagicMock(read=lambda: b'apiVersion: v1\nkind: Job')}
-            ]
-            mock_get_s3_client.return_value = mock_s3
-            
+
             result = _init_training_job(temp_dir, "hyp-recipe-job", "test-model", None, "ml.p4d.24xlarge")
-            
-            assert result is True
-            assert Path(temp_dir, ".override_spec.json").exists()
-            assert Path(temp_dir, "config.yaml").exists()
-            assert Path(temp_dir, "k8s.jinja").exists()
+
+            assert result is False
 
     @patch('sagemaker.hyperpod.cli.commands.training_recipe._interactive_cluster_selection')
+    @patch('sagemaker.hyperpod.cli.commands.cluster.set_cluster_context')
     @patch('sagemaker.hyperpod.cli.commands.training_recipe._get_sagemaker_client')
     @patch('sagemaker.hyperpod.cli.commands.training_recipe._get_s3_client')
     @patch('sagemaker.hyperpod.cli.commands.training_recipe.click.secho')
-    def test_init_training_job_with_interactive_selection(self, mock_secho, mock_get_s3_client, mock_get_sagemaker_client, mock_interactive):
+    def test_init_training_job_with_interactive_selection(self, mock_secho, mock_get_s3_client, mock_get_sagemaker_client, mock_set_context, mock_interactive):
         """Test training job initialization with interactive cluster selection"""
         with tempfile.TemporaryDirectory() as temp_dir:
-            # Mock interactive selection
             mock_interactive.return_value = ("test-cluster", "ml.p4d.24xlarge")
-            
-            # Mock SageMaker client
+            mock_set_context.main = MagicMock()
+
             mock_sagemaker = MagicMock()
             mock_sagemaker.describe_hub_content.return_value = {
                 'HubContentDocument': json.dumps({
                     'RecipeCollection': [{
                         'Type': 'FineTuning',
-                        'CustomizationTechnique': 'lora',
+                        'CustomizationTechnique': 'SFT',
                         'SupportedInstanceTypes': ['ml.p4d.24xlarge'],
                         'HpEksOverrideParamsS3Uri': 's3://bucket/override.json',
                         'HpEksPayloadTemplateS3Uri': 's3://bucket/template.yaml'
@@ -228,18 +206,16 @@ class TestInitTrainingJob:
                 })
             }
             mock_get_sagemaker_client.return_value = mock_sagemaker
-            
-            # Mock S3 client
+
             mock_s3 = MagicMock()
             mock_s3.get_object.side_effect = [
                 {'Body': MagicMock(read=lambda: json.dumps({"job_name": {"type": "string", "required": True}}).encode())},
                 {'Body': MagicMock(read=lambda: b'apiVersion: v1\nkind: Job')}
             ]
             mock_get_s3_client.return_value = mock_s3
-            
-            # Call without instance_type to trigger interactive selection
-            result = _init_training_job(temp_dir, "hyp-recipe-job", "test-model", "lora")
-            
+
+            result = _init_training_job(temp_dir, "hyp-recipe-job", "test-model", "SFT")
+
             assert result is True
             mock_interactive.assert_called_once()
             assert Path(temp_dir, ".override_spec.json").exists()
@@ -321,21 +297,16 @@ class TestFetchRecipeFromHub:
         assert 'ml.p4d.24xlarge' in result['SupportedInstanceTypes']
 
     def test_fetch_recipe_no_technique_success(self):
-        """Test fetching recipe without technique successfully"""
+        """Test that fetching recipe without technique raises ValueError (technique is required)"""
         mock_client = MagicMock()
         mock_client.describe_hub_content.return_value = {
             'HubContentDocument': json.dumps({
-                'RecipeCollection': [{
-                    'Type': 'FineTuning',
-                    'SupportedInstanceTypes': ['ml.p4d.24xlarge']
-                }]
+                'RecipeCollection': [{'Type': 'FineTuning', 'SupportedInstanceTypes': ['ml.p4d.24xlarge']}]
             })
         }
-        
-        result = _fetch_recipe_from_hub(mock_client, "test-model", "hyp-recipe-job", None, "ml.p4d.24xlarge")
-        
-        assert result['Type'] == 'FineTuning'
-        assert 'ml.p4d.24xlarge' in result['SupportedInstanceTypes']
+
+        with pytest.raises(ValueError, match="technique is required"):
+            _fetch_recipe_from_hub(mock_client, "test-model", "hyp-recipe-job", None, "ml.p4d.24xlarge")
 
 
 
@@ -734,116 +705,54 @@ class TestDownloadFunctions:
 class TestInstanceTypeOverride:
     """Test cases for instance type override functionality in _generate_dynamic_config_yaml"""
 
+    def _make_schema(self, instance_default="ml.g5.2xlarge"):
+        return {
+            "instance_type": {"type": "string", "required": True, "default": instance_default},
+            "other_param":   {"type": "string", "required": False, "default": "default_value"},
+        }
+
     @patch('sagemaker.hyperpod.cli.recipe_utils.load_dynamic_schema')
-    @patch('builtins.open', new_callable=mock_open)
-    def test_generate_config_with_instance_type_override(self, mock_file, mock_load_schema):
+    def test_generate_config_with_instance_type_override(self, mock_load_schema):
         """Test that instance_type field is overridden with user input"""
         from sagemaker.hyperpod.cli.recipe_utils import _generate_dynamic_config_yaml
-        
-        # Mock schema with instance_type parameter
-        mock_schema = {
-            "instance_type": {
-                "type": "string",
-                "description": "Instance type for training",
-                "required": True,
-                "default": "ml.g5.2xlarge"
-            },
-            "model_name": {
-                "type": "string", 
-                "description": "Model name",
-                "required": True
-            }
-        }
-        mock_load_schema.return_value = mock_schema
-        
+        mock_load_schema.return_value = self._make_schema()
+
         with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-            
-            # Call with instance_type override
             _generate_dynamic_config_yaml(
-                temp_path, 
-                "hyp-recipe-job",
-                model_name="test-model",
-                technique="SFT", 
-                instance_type="ml.g5.48xlarge"
+                Path(temp_dir), "hyp-recipe-job",
+                model_name="test-model", technique="SFT", instance_type="ml.g5.48xlarge"
             )
-            
-            # Verify the file was written with overridden instance_type
-            written_content = "".join(call.args[0] for call in mock_file().write.call_args_list)
-            assert "ml.g5.48xlarge" in written_content
-            assert "instance_type: ml.g5.48xlarge" in written_content
+            content = (Path(temp_dir) / "config.yaml").read_text()
+            assert "ml.g5.48xlarge" in content
 
     @patch('sagemaker.hyperpod.cli.recipe_utils.load_dynamic_schema')
-    @patch('builtins.open', new_callable=mock_open)
-    def test_generate_config_without_instance_type_override(self, mock_file, mock_load_schema):
+    def test_generate_config_without_instance_type_override(self, mock_load_schema):
         """Test that default instance_type is used when no override provided"""
         from sagemaker.hyperpod.cli.recipe_utils import _generate_dynamic_config_yaml
-        
-        # Mock schema with instance_type parameter
-        mock_schema = {
-            "instance_type": {
-                "type": "string",
-                "description": "Instance type for training", 
-                "required": True,
-                "default": "ml.g5.2xlarge"
-            }
-        }
-        mock_load_schema.return_value = mock_schema
-        
+        mock_load_schema.return_value = self._make_schema()
+
         with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-            
-            # Call without instance_type override
             _generate_dynamic_config_yaml(
-                temp_path,
-                "hyp-recipe-job", 
-                model_name="test-model",
-                technique="SFT"
+                Path(temp_dir), "hyp-recipe-job",
+                model_name="test-model", technique="SFT"
             )
-            
-            # Verify the file was written with default instance_type
-            written_content = "".join(call.args[0] for call in mock_file().write.call_args_list)
-            assert "ml.g5.2xlarge" in written_content
+            content = (Path(temp_dir) / "config.yaml").read_text()
+            assert "ml.g5.2xlarge" in content
 
     @patch('sagemaker.hyperpod.cli.recipe_utils.load_dynamic_schema')
-    @patch('builtins.open', new_callable=mock_open)
-    def test_generate_config_instance_type_override_only_affects_instance_type_field(self, mock_file, mock_load_schema):
-        """Test that instance_type override only affects the instance_type field, not other fields"""
+    def test_generate_config_instance_type_override_only_affects_instance_type_field(self, mock_load_schema):
+        """Test that instance_type override only affects the instance_type field"""
         from sagemaker.hyperpod.cli.recipe_utils import _generate_dynamic_config_yaml
-        
-        # Mock schema with multiple parameters
-        mock_schema = {
-            "instance_type": {
-                "type": "string",
-                "description": "Instance type for training",
-                "required": True,
-                "default": "ml.g5.2xlarge"
-            },
-            "other_param": {
-                "type": "string",
-                "description": "Other parameter", 
-                "required": False,
-                "default": "default_value"
-            }
-        }
-        mock_load_schema.return_value = mock_schema
-        
+        mock_load_schema.return_value = self._make_schema()
+
         with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-            
-            # Call with instance_type override
             _generate_dynamic_config_yaml(
-                temp_path,
-                "hyp-recipe-job",
-                model_name="test-model", 
-                technique="SFT",
-                instance_type="ml.g5.48xlarge"
+                Path(temp_dir), "hyp-recipe-job",
+                model_name="test-model", technique="SFT", instance_type="ml.g5.48xlarge"
             )
-            
-            # Verify instance_type was overridden but other_param uses default
-            written_content = "".join(call.args[0] for call in mock_file().write.call_args_list)
-            assert "ml.g5.48xlarge" in written_content
-            assert "default_value" in written_content
+            content = (Path(temp_dir) / "config.yaml").read_text()
+            assert "ml.g5.48xlarge" in content
+            assert "default_value" in content
 
 
 class TestInteractiveClusterSelection:
@@ -953,3 +862,197 @@ class TestHypCliDeleteCommand:
         recipe_delete_cmd = delete.get_command(None, "hyp-recipe-job")
         assert recipe_delete_cmd is not None
         assert "Delete a HyperPod recipe job" in recipe_delete_cmd.help
+
+
+class TestIsHubContentArn:
+    def test_valid_private_hub_arn_with_version(self):
+        from sagemaker.hyperpod.cli.recipe_utils import _is_hub_content_arn
+        assert _is_hub_content_arn(
+            "arn:aws:sagemaker:us-west-2:123456789012:hub-content/MyHub/Model/my-model/1.0.0"
+        ) is True
+
+    def test_valid_public_hub_arn(self):
+        from sagemaker.hyperpod.cli.recipe_utils import _is_hub_content_arn
+        assert _is_hub_content_arn(
+            "arn:aws:sagemaker:us-west-2:aws:hub-content/SageMakerPublicHub/Model/my-model/3.1.0"
+        ) is True
+
+    def test_valid_arn_without_version(self):
+        from sagemaker.hyperpod.cli.recipe_utils import _is_hub_content_arn
+        assert _is_hub_content_arn(
+            "arn:aws:sagemaker:us-west-2:123456789012:hub-content/MyHub/Model/my-model"
+        ) is True
+
+    def test_jumpstart_id_is_not_arn(self):
+        from sagemaker.hyperpod.cli.recipe_utils import _is_hub_content_arn
+        assert _is_hub_content_arn("meta-textgeneration-llama-3-1-8b-instruct") is False
+
+    def test_hf_id_is_not_arn(self):
+        from sagemaker.hyperpod.cli.recipe_utils import _is_hub_content_arn
+        assert _is_hub_content_arn("meta-llama/Llama-3.1-8B-Instruct") is False
+
+
+class TestParseHubContentArn:
+    def test_parses_all_components_with_version(self):
+        from sagemaker.hyperpod.cli.recipe_utils import _parse_hub_content_arn
+        result = _parse_hub_content_arn(
+            "arn:aws:sagemaker:us-west-2:123456789012:hub-content/MyHub/ModelReference/my-model/3.1.0"
+        )
+        assert result == {
+            "HubName": "MyHub",
+            "HubContentType": "ModelReference",
+            "HubContentName": "my-model",
+            "HubContentVersion": "3.1.0",
+        }
+
+    def test_parses_without_version(self):
+        from sagemaker.hyperpod.cli.recipe_utils import _parse_hub_content_arn
+        result = _parse_hub_content_arn(
+            "arn:aws:sagemaker:us-west-2:123456789012:hub-content/MyHub/Model/my-model"
+        )
+        assert "HubContentVersion" not in result
+        assert result["HubName"] == "MyHub"
+        assert result["HubContentName"] == "my-model"
+
+
+class TestFetchRecipeFromPrivateHub:
+    def test_calls_describe_with_parsed_params(self):
+        from sagemaker.hyperpod.cli.recipe_utils import _fetch_recipe_from_private_hub
+        mock_client = MagicMock()
+        mock_client.describe_hub_content.return_value = {
+            "HubContentDocument": json.dumps({"RecipeCollection": []})
+        }
+        arn = "arn:aws:sagemaker:us-west-2:123456789012:hub-content/MyHub/Model/my-model/1.0.0"
+        _fetch_recipe_from_private_hub(mock_client, arn)
+        mock_client.describe_hub_content.assert_called_once_with(
+            HubName="MyHub", HubContentType="Model",
+            HubContentName="my-model", HubContentVersion="1.0.0"
+        )
+
+    def test_raises_on_invalid_arn(self):
+        from sagemaker.hyperpod.cli.recipe_utils import _fetch_recipe_from_private_hub
+        with pytest.raises(ValueError, match="Invalid Hub Content ARN"):
+            _fetch_recipe_from_private_hub(MagicMock(), "not-an-arn")
+
+
+class TestResolveHuggingfaceModelId:
+    def test_resolves_via_search(self):
+        from sagemaker.hyperpod.cli.recipe_utils import _resolve_huggingface_model_id
+        mock_client = MagicMock()
+        mock_client.list_hub_contents.return_value = {
+            "HubContentSummaries": [{
+                "HubContentName": "meta-textgeneration-llama-3-1-8b-instruct",
+                "HubContentSearchKeywords": ["@recipe:finetuning_sft_lora"],
+            }]
+        }
+        result = _resolve_huggingface_model_id(mock_client, "meta-llama/Llama-3.1-8B-Instruct")
+        assert result == "meta-textgeneration-llama-3-1-8b-instruct"
+
+    def test_falls_back_to_static_table(self):
+        from sagemaker.hyperpod.cli.recipe_utils import _resolve_huggingface_model_id
+        mock_client = MagicMock()
+        mock_client.list_hub_contents.return_value = {"HubContentSummaries": []}
+        result = _resolve_huggingface_model_id(mock_client, "Qwen/Qwen3-0.6B")
+        assert result == "huggingface-reasoning-qwen3-06b"
+
+    def test_raises_for_unknown_model(self):
+        from sagemaker.hyperpod.cli.recipe_utils import _resolve_huggingface_model_id
+        mock_client = MagicMock()
+        mock_client.list_hub_contents.return_value = {"HubContentSummaries": []}
+        with pytest.raises(ValueError, match="may not be supported"):
+            _resolve_huggingface_model_id(mock_client, "someorg/Unknown-Model")
+
+    def test_raises_on_ambiguous_matches(self):
+        from sagemaker.hyperpod.cli.recipe_utils import _resolve_huggingface_model_id
+        mock_client = MagicMock()
+        mock_client.list_hub_contents.return_value = {
+            "HubContentSummaries": [
+                {"HubContentName": "model-a", "HubContentSearchKeywords": ["@recipe:finetuning_sft_lora"]},
+                {"HubContentName": "model-b", "HubContentSearchKeywords": ["@recipe:finetuning_sft_lora"]},
+            ]
+        }
+        with pytest.raises(ValueError, match="may not be supported"):
+            _resolve_huggingface_model_id(mock_client, "someorg/SomeModel")
+
+
+class TestFetchRecipeFromHubModelIdFormats:
+    def _hub_doc(self, technique="SFT"):
+        return {
+            "HubContentDocument": json.dumps({"RecipeCollection": [{
+                "Type": "FineTuning",
+                "CustomizationTechnique": technique,
+                "SupportedInstanceTypes": ["ml.p4d.24xlarge"],
+                "HpEksOverrideParamsS3Uri": "s3://b/o",
+                "HpEksPayloadTemplateS3Uri": "s3://b/t",
+            }]})
+        }
+
+    def test_jumpstart_id_path(self):
+        from sagemaker.hyperpod.cli.recipe_utils import _fetch_recipe_from_hub
+        mock_client = MagicMock()
+        mock_client.describe_hub_content.return_value = self._hub_doc()
+        result = _fetch_recipe_from_hub(mock_client, "meta-textgeneration-llama-3-1-8b-instruct", "hyp-recipe-job", "SFT")
+        mock_client.describe_hub_content.assert_called_once_with(
+            HubName="SageMakerPublicHub", HubContentType="Model",
+            HubContentName="meta-textgeneration-llama-3-1-8b-instruct"
+        )
+        assert result["CustomizationTechnique"] == "SFT"
+
+    def test_arn_path_uses_private_hub(self):
+        from sagemaker.hyperpod.cli.recipe_utils import _fetch_recipe_from_hub
+        mock_client = MagicMock()
+        mock_client.describe_hub_content.return_value = self._hub_doc()
+        arn = "arn:aws:sagemaker:us-west-2:123456789012:hub-content/MyHub/Model/my-model/1.0.0"
+        _fetch_recipe_from_hub(mock_client, arn, "hyp-recipe-job", "SFT")
+        mock_client.describe_hub_content.assert_called_once_with(
+            HubName="MyHub", HubContentType="Model",
+            HubContentName="my-model", HubContentVersion="1.0.0"
+        )
+
+    def test_hf_id_resolves_via_search(self):
+        from sagemaker.hyperpod.cli.recipe_utils import _fetch_recipe_from_hub
+        mock_client = MagicMock()
+        mock_client.list_hub_contents.return_value = {
+            "HubContentSummaries": [{
+                "HubContentName": "meta-textgeneration-llama-3-1-8b-instruct",
+                "HubContentSearchKeywords": ["@recipe:finetuning_sft_lora"],
+            }]
+        }
+        mock_client.describe_hub_content.return_value = self._hub_doc()
+        _fetch_recipe_from_hub(mock_client, "meta-llama/Llama-3.1-8B-Instruct", "hyp-recipe-job", "SFT")
+        mock_client.describe_hub_content.assert_called_once_with(
+            HubName="SageMakerPublicHub", HubContentType="Model",
+            HubContentName="meta-textgeneration-llama-3-1-8b-instruct"
+        )
+
+
+class TestWarnIfInstanceTypeUnavailable:
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe.client')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe.config')
+    def test_warns_when_instance_type_missing(self, mock_k8s_config, mock_k8s_client):
+        from sagemaker.hyperpod.cli.commands.training_recipe import _warn_if_instance_type_unavailable
+        node = MagicMock()
+        node.metadata.labels = {"node.kubernetes.io/instance-type": "ml.g5.8xlarge"}
+        mock_k8s_client.CoreV1Api.return_value.list_node.return_value.items = [node]
+        with patch('sagemaker.hyperpod.cli.commands.training_recipe.click.secho') as mock_secho:
+            _warn_if_instance_type_unavailable("ml.p5.48xlarge")
+            mock_secho.assert_called_once()
+            assert "ml.p5.48xlarge" in mock_secho.call_args[0][0]
+
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe.client')
+    @patch('sagemaker.hyperpod.cli.commands.training_recipe.config')
+    def test_silent_when_instance_type_present(self, mock_k8s_config, mock_k8s_client):
+        from sagemaker.hyperpod.cli.commands.training_recipe import _warn_if_instance_type_unavailable
+        node = MagicMock()
+        node.metadata.labels = {"node.kubernetes.io/instance-type": "ml.g5.8xlarge"}
+        mock_k8s_client.CoreV1Api.return_value.list_node.return_value.items = [node]
+        with patch('sagemaker.hyperpod.cli.commands.training_recipe.click.secho') as mock_secho:
+            _warn_if_instance_type_unavailable("ml.g5.8xlarge")
+            mock_secho.assert_not_called()
+
+    def test_silent_on_exception(self):
+        from sagemaker.hyperpod.cli.commands.training_recipe import _warn_if_instance_type_unavailable
+        with patch('sagemaker.hyperpod.cli.commands.training_recipe.config') as mock_cfg:
+            mock_cfg.load_kube_config.side_effect = Exception("no kubeconfig")
+            # Should not raise
+            _warn_if_instance_type_unavailable("ml.p5.48xlarge")

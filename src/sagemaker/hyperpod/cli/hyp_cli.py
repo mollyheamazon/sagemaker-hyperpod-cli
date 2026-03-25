@@ -62,7 +62,6 @@ from sagemaker.hyperpod.cli.commands.init import (
     configure,
     _default_create
 )
-# from sagemaker.hyperpod.cli.commands.training_recipe import create_recipe_job_interactive
 
 
 def get_package_version(package_name):

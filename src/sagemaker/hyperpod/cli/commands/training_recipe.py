@@ -66,23 +66,20 @@ def _interactive_cluster_selection(sagemaker_client, model_id: str, job_type: st
             clusters_data = []
             for cluster_name in cluster_names:
                 try:
-                    # Get cluster details
                     cluster_response = sm_client.describe_cluster(ClusterName=cluster_name)
                     instance_groups = cluster_response.get('InstanceGroups', [])
-                    
-                    # Extract instance type and count from first instance group
-                    if instance_groups:
-                        first_group = instance_groups[0]
-                        instance_type = first_group.get('InstanceType', 'Unknown')
-                        current_count = first_group.get('CurrentCount', 0)
-                        
-                        clusters_data.append({
-                            'Cluster': cluster_name,
-                            'InstanceType': instance_type,
-                            'TotalNodes': current_count,
-                            'AcceleratorDevicesAvailable': current_count * 8 if 'g5' in instance_type else 0  # Estimate GPUs
-                        })
-                    
+
+                    # Check all instance groups — a cluster may have CPU head + GPU worker groups
+                    for group in instance_groups:
+                        instance_type = group.get('InstanceType', 'Unknown')
+                        current_count = group.get('CurrentCount', 0)
+                        if instance_type in supported_instance_types:
+                            clusters_data.append({
+                                'Cluster': cluster_name,
+                                'InstanceType': instance_type,
+                                'TotalNodes': current_count,
+                            })
+
                 except Exception as e:
                     click.secho(f"⚠️ Warning: Could not get details for cluster {cluster_name}: {e}", fg="yellow")
                     continue
@@ -96,44 +93,31 @@ def _interactive_cluster_selection(sagemaker_client, model_id: str, job_type: st
         except Exception as e:
             click.secho(f"❌ Error fetching clusters: {e}", fg="red")
             return None, None
-        
-        # Filter clusters that have supported instance types
-        compatible_clusters = []
-        for cluster in clusters_data:
-            cluster_instance_type = cluster.get('InstanceType')
-            if cluster_instance_type in supported_instance_types:
-                compatible_clusters.append({
-                    'name': cluster.get('Cluster'),
-                    'instance_type': cluster_instance_type,
-                    'total_nodes': cluster.get('TotalNodes', 0),
-                    'available_devices': cluster.get('AcceleratorDevicesAvailable', 0)
-                })
-        
-        if not compatible_clusters:
+
+        if not clusters_data:
             click.secho("❌ No compatible clusters found with supported instance types", fg="red")
             click.secho(f"Supported instance types: {sorted(supported_instance_types)}", fg="yellow")
             return None, None
-        
+
         # Display compatible clusters
         click.secho("\n📋 Compatible clusters found:", fg="green")
         click.secho("-" * 80, fg="blue")
-        for i, cluster in enumerate(compatible_clusters, 1):
-            click.secho(f"{i}. Cluster: {cluster['name']}", fg="cyan")
-            click.secho(f"   Instance Type: {cluster['instance_type']}", fg="white")
-            click.secho(f"   Total Nodes: {cluster['total_nodes']}", fg="white")
-            click.secho(f"   Available Devices: {cluster['available_devices']}", fg="white")
+        for i, cluster in enumerate(clusters_data, 1):
+            click.secho(f"{i}. Cluster: {cluster['Cluster']}", fg="cyan")
+            click.secho(f"   Instance Type: {cluster['InstanceType']}", fg="white")
+            click.secho(f"   Total Nodes: {cluster['TotalNodes']}", fg="white")
             click.secho("")
-        
+
         # Get user selection
         while True:
             try:
-                choice = click.prompt(f"Select a cluster (1-{len(compatible_clusters)})", type=int)
-                if 1 <= choice <= len(compatible_clusters):
-                    selected_cluster = compatible_clusters[choice - 1]
-                    click.secho(f"✔️ Selected cluster: {selected_cluster['name']} with instance type: {selected_cluster['instance_type']}", fg="green")
-                    return selected_cluster['name'], selected_cluster['instance_type']
+                choice = click.prompt(f"Select a cluster (1-{len(clusters_data)})", type=int)
+                if 1 <= choice <= len(clusters_data):
+                    selected = clusters_data[choice - 1]
+                    click.secho(f"✔️ Selected: {selected['Cluster']} ({selected['InstanceType']})", fg="green")
+                    return selected['Cluster'], selected['InstanceType']
                 else:
-                    click.secho(f"❌ Please enter a number between 1 and {len(compatible_clusters)}", fg="red")
+                    click.secho(f"❌ Please enter a number between 1 and {len(clusters_data)}", fg="red")
             except (ValueError, click.Abort):
                 click.secho("❌ Operation cancelled", fg="red")
                 return None, None
@@ -148,14 +132,21 @@ def _init_training_job(directory: str, job_type: str, model_id: str, technique: 
     try:
         sagemaker_client = _get_sagemaker_client()
         s3_client = _get_s3_client()
-        
+
         # If instance_type not provided, use interactive selection
+        cluster_name = None
         if not instance_type:
             cluster_name, instance_type = _interactive_cluster_selection(
                 sagemaker_client, model_id, job_type, technique
             )
             if not instance_type:
                 return False
+
+        # Update kubeconfig to point at the selected cluster
+        if cluster_name:
+            from sagemaker.hyperpod.cli.commands.cluster import set_cluster_context
+            click.secho(f"🔧 Connecting to cluster: {cluster_name}", fg="blue")
+            set_cluster_context.main(["--cluster-name", cluster_name], standalone_mode=False)
         
         # Fetch and validate recipe
         matching_recipe = _fetch_recipe_from_hub(sagemaker_client, model_id, job_type, technique, instance_type)
@@ -248,12 +239,39 @@ def _configure_dynamic_template(ctx, option, value, dir_path):
     click.secho(f"✅ Successfully set {option} = {converted_value}", fg="green")
 
 
+def _warn_if_instance_type_unavailable(instance_type: str) -> None:
+    """Warn if the requested instance type has no ready nodes in the current cluster."""
+    try:
+        from kubernetes import client, config as k8s_config
+        k8s_config.load_kube_config()
+        v1 = client.CoreV1Api()
+        nodes = v1.list_node().items
+        available = {
+            n.metadata.labels.get("node.kubernetes.io/instance-type")
+            for n in nodes
+            if n.metadata.labels
+        }
+        available.discard(None)
+        if instance_type and instance_type not in available:
+            click.secho(
+                f"⚠️  Instance type '{instance_type}' not found in the current cluster.\n"
+                f"   Available: {', '.join(sorted(available)) or 'none'}\n"
+                f"   The job will be submitted but pods may remain Pending.",
+                fg="yellow"
+            )
+    except Exception:
+        pass  # Don't block submission if check fails
+
+
 def _create_dynamic_template(dir_path: Path, config_data: dict):
     """Handle create for dynamic templates (recipe)"""
     try:
         # Validate config first
         _validate_dynamic_template(dir_path)
         click.secho("✔️ Configuration validated successfully", fg="green")
+
+        # Warn if instance type isn't available in the cluster
+        _warn_if_instance_type_unavailable(config_data.get('instance_type'))
         
         k8s_template_file = dir_path / 'k8s.jinja'
         if not k8s_template_file.exists():

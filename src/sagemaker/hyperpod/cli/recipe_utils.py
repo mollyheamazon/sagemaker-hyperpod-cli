@@ -408,75 +408,22 @@ def _validate_dynamic_template(dir_path: Path) -> bool:
 
 def _generate_dynamic_config_yaml(dir_path: Path, template: str, version: str = None, model_name: str = None, technique: str = None, instance_type: str = None):
     """Generate config.yaml for dynamic templates with default values"""
+    from sagemaker.hyperpod.cli.recipe_param_order import render_config_yaml
+
     spec = load_dynamic_schema(dir_path)
-    
-    # Try to preserve existing metadata from current config
-    existing_model = model_name
-    existing_technique = technique
-    
+
+    # Override instance_type default with user-provided value
+    if instance_type and 'instance_type' in spec:
+        spec['instance_type'] = dict(spec['instance_type'], default=instance_type)
+
+    header = [f"template: {template}"]
+    if model_name:
+        header.append(f"model: {model_name}")
+    if technique:
+        header.append(f"fine tune technique: {technique}")
+
     config_path = dir_path / 'config.yaml'
-    if config_path.exists():
-        try:
-            with open(config_path, 'r') as f:
-                for line in f:
-                    if line.startswith('# model: ') and not existing_model:
-                        existing_model = line.replace('# model: ', '').strip()
-                    elif line.startswith('# fine tune technique: ') and not existing_technique:
-                        existing_technique = line.replace('# fine tune technique: ', '').strip()
-        except:
-            pass  # If reading fails, use provided values
-    
-    with open(config_path, 'w') as f:
-        f.write(f"# template: {template}\n")
-        if existing_model:
-            f.write(f"# model: {existing_model}\n")
-        if existing_technique:
-            f.write(f"# fine tune technique: {existing_technique}\n")
-        f.write("\n")
-        
-        # Priority fields that users edit most often appear first
-        priority_fields = [
-            'name', 'namespace', 'model_name_or_path', 'instance_type',
-            'training_data_name', 'data_path',
-            'validation_data_name', 'validation_data_path',
-            'output_path', 'resume_from_path', 'results_directory',
-            'image', 'job_name',
-        ]
-        sorted_spec = sorted(spec.items(), key=lambda x: (
-            x[0] not in priority_fields,
-            priority_fields.index(x[0]) if x[0] in priority_fields else len(priority_fields),
-            not x[1].get('required', False),
-            x[0],
-        ))
-        for key, param_spec in sorted_spec:
-            default_value = param_spec.get('default')
-            param_type = param_spec.get('type', 'string')
-            min_val = param_spec.get('min')
-            max_val = param_spec.get('max')
-            description = param_spec.get('description', '')
-            required = param_spec.get('required', False)
-            
-            # Override instance_type field with user input if provided
-            if key == 'instance_type' and instance_type:
-                default_value = instance_type
-            
-            if description:
-                f.write(f"# {description}\n")
-            f.write(f"# Type: {param_type}")
-            if min_val is not None:
-                f.write(f", Min: {min_val}")
-            if max_val is not None:
-                f.write(f", Max: {max_val}")
-            f.write(f", Required: {required}\n")
-            
-            if default_value is None:
-                f.write(f"{key}: null\n\n")
-            elif isinstance(default_value, str):
-                f.write(f"{key}: {default_value}\n\n")
-            elif isinstance(default_value, (list, dict)):
-                f.write(f"{key}: {json.dumps(default_value)}\n\n")
-            else:
-                f.write(f"{key}: {default_value}\n\n")
+    config_path.write_text(render_config_yaml(spec, header_comments=header))
 
 
 def _update_config_field(config_path: Path, spec: Dict[str, Any], option: str, value: Any):

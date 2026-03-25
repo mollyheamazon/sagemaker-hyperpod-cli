@@ -20,6 +20,19 @@ _HUB_CONTENT_ARN_PATTERN = re.compile(
     r"^arn:aws(-[\w]+)*:sagemaker:[a-z0-9\-]+:(\d{12}|aws):hub-content/[^/]+/[^/]+/[^/]+(/[\d.]+)?$"
 )
 
+# Static fallback for HF model IDs where name derivation fails the search.
+# Only contains edge cases — not all models.
+_HF_MODEL_ID_FALLBACK = {
+    "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B": "deepseek-llm-r1-distill-qwen-32b",
+    "Qwen/Qwen3-0.6B":                          "huggingface-reasoning-qwen3-06b",
+}
+
+# Technique aliases for user-friendly input
+_TECHNIQUE_ALIASES = {
+    "deterministic": "DeterministicEvaluation",
+    "llmaj": "LLMAJEvaluation",
+}
+
 
 def _is_hub_content_arn(model_id: str) -> bool:
     """Check if model_id is a valid SageMaker Hub Content ARN."""
@@ -62,13 +75,6 @@ def _resolve_huggingface_model_id(sagemaker_client, hf_model_id: str) -> str:
     fallback for models whose names don't derive cleanly to a search term.
     Raises ValueError with a clean "not supported" message for unknown models.
     """
-    # Static fallback for models where name derivation fails the search.
-    # Only contains edge cases — not all models.
-    _FALLBACK = {
-        "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B": "deepseek-llm-r1-distill-qwen-32b",
-        "Qwen/Qwen3-0.6B":                          "huggingface-reasoning-qwen3-06b",
-    }
-
     raw = hf_model_id.split('/')[-1].lower()
     search_term = re.sub(r'[^a-z0-9\-]', '-', raw).strip('-')
 
@@ -86,8 +92,8 @@ def _resolve_huggingface_model_id(sagemaker_client, hf_model_id: str) -> str:
     if len(recipe_matches) == 1:
         return recipe_matches[0]['HubContentName']
 
-    if hf_model_id in _FALLBACK:
-        return _FALLBACK[hf_model_id]
+    if hf_model_id in _HF_MODEL_ID_FALLBACK:
+        return _HF_MODEL_ID_FALLBACK[hf_model_id]
 
     raise ValueError(
         f"'{hf_model_id}' may not be supported for HyperPod recipes, or could not be resolved.\n"
@@ -118,18 +124,15 @@ def _fetch_recipe_from_hub(sagemaker_client, model_id: str, job_type: str, techn
         )
         hub_content_doc = json.loads(response.get('HubContentDocument', '{}'))
     recipe_collection = hub_content_doc.get('RecipeCollection', [])
-    
+
+    if not technique:
+        raise ValueError("technique is required. Supported values: SFT, DPO, RLAIF, RLVR, CPT, PPO, deterministic, LLMAJ")
+
     # Resolve technique aliases to canonical names (case-insensitive)
-    _TECHNIQUE_ALIASES = {
-        "deterministic": "DeterministicEvaluation",
-        "llmaj": "LLMAJEvaluation",
-    }
-    technique_lower = technique.lower() if technique else ""
+    technique_lower = technique.lower()
     technique = _TECHNIQUE_ALIASES.get(technique_lower, technique.upper() if technique_lower not in _TECHNIQUE_ALIASES else technique)
-    
-    # Filter recipes by technique (case-insensitive match).
-    #   FineTuning techniques: SFT, DPO, RLAIF, RLVR, etc. (matched via CustomizationTechnique)
-    #   Evaluation types: DeterministicEvaluation, LLMAJEvaluation, etc. (matched via EvaluationType)
+
+    # Filter recipes by technique
     matching_recipes = [
         r for r in recipe_collection
         if (r.get('CustomizationTechnique') or '').upper() == technique.upper()
@@ -412,8 +415,9 @@ def _generate_dynamic_config_yaml(dir_path: Path, template: str, version: str = 
 
     spec = load_dynamic_schema(dir_path)
 
-    # Override instance_type default with user-provided value
+    # Override instance_type default with user-provided value (copy to avoid mutating loaded schema)
     if instance_type and 'instance_type' in spec:
+        spec = dict(spec)
         spec['instance_type'] = dict(spec['instance_type'], default=instance_type)
 
     header = [f"template: {template}"]

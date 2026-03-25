@@ -1,11 +1,9 @@
 from jinja2 import Template
-import boto3
-from datetime import datetime, timezone
+from datetime import datetime
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 import yaml
 import json
-import os
 import sys
 import click
 from pathlib import Path
@@ -19,7 +17,6 @@ from sagemaker.hyperpod.cli.recipe_utils import (
     _get_s3_client, _get_k8s_custom_client, _validate_dynamic_template,
     _generate_dynamic_config_yaml, _update_config_field
 )
-from sagemaker.hyperpod.cli.commands.cluster import list_cluster
 import shutil
 from sagemaker.hyperpod.common.telemetry.constants import Feature
 from sagemaker.hyperpod.common.telemetry.telemetry_logging import _hyperpod_telemetry_emitter
@@ -32,41 +29,27 @@ def _interactive_cluster_selection(sagemaker_client, model_id: str, job_type: st
         # First get the recipe to find supported instance types
         matching_recipe = _fetch_recipe_from_hub(sagemaker_client, model_id, job_type, technique, None)
         supported_instance_types = set(matching_recipe.get('SupportedInstanceTypes', []))
-        
+
         if not supported_instance_types:
             click.secho("❌ No supported instance types found in recipe", fg="red")
             return None, None
-        
-        # Get clusters using core components from list_cluster
+
         click.secho("🔍 Fetching available clusters...", fg="blue")
-        
+
         try:
-            # Import required components
-            import boto3
-            import botocore.config
             from sagemaker.hyperpod.cli.commands.cluster import _get_hyperpod_clusters
-            from sagemaker.hyperpod.common.telemetry.user_agent import get_user_agent_extra_suffix
-            from sagemaker.hyperpod.cli.utils import get_sagemaker_client
-            
-            # Setup session and client (similar to list_cluster)
-            botocore_config = botocore.config.Config(
-                user_agent_extra=get_user_agent_extra_suffix()
-            )
-            session = boto3.Session()
-            sm_client = get_sagemaker_client(session, botocore_config)
-            
-            # Get cluster names
-            cluster_names = _get_hyperpod_clusters(sm_client)
-            
+
+            cluster_names = _get_hyperpod_clusters(sagemaker_client)
+
             if not cluster_names:
                 click.secho("❌ No HyperPod clusters found", fg="red")
                 return None, None
-            
+
             # Query actual cluster details
             clusters_data = []
             for cluster_name in cluster_names:
                 try:
-                    cluster_response = sm_client.describe_cluster(ClusterName=cluster_name)
+                    cluster_response = sagemaker_client.describe_cluster(ClusterName=cluster_name)
                     instance_groups = cluster_response.get('InstanceGroups', [])
 
                     # Check all instance groups — a cluster may have CPU head + GPU worker groups
@@ -209,34 +192,12 @@ def _configure_dynamic_template(ctx, option, value, dir_path):
     if provided_options:
         for key, value in provided_options.items():
             _update_config_field(config_path, spec, key, value)
-        
-        click.secho(f"✔️  config.yaml updated successfully.", fg="green")
+        click.secho("✔️  config.yaml updated successfully.", fg="green")
         return
-    
-    # If no arguments, show help like --help does
+
+    # If no arguments, show help
     click.echo(ctx.get_help())
     ctx.exit(0)
-    
-    # Validate option exists
-    if option not in spec:
-        click.secho(f"❌ Unknown option: {option}", fg="red")
-        click.echo(f"\nRun 'hyp configure' to see available options")
-        ctx.exit(1)
-    
-    if value is None:
-        click.secho(f"❌ This field is required. Please provide a value for option: {option}", fg="red")
-        ctx.exit(1)
-    
-    # Validate and convert value using extracted utility
-    try:
-        converted_value = _validate_and_convert_value(str(value), spec[option])
-    except ValueError as e:
-        click.secho(f"❌ {e}", fg="red")
-        ctx.exit(1)
-    
-    # Update config.yaml using extracted utility
-    _update_config_field(config_path, spec, option, converted_value)
-    click.secho(f"✅ Successfully set {option} = {converted_value}", fg="green")
 
 
 def _warn_if_instance_type_unavailable(instance_type: str) -> None:

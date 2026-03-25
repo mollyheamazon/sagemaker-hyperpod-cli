@@ -32,7 +32,8 @@ from sagemaker.hyperpod.common.telemetry.telemetry_logging import (
     _hyperpod_telemetry_emitter,
 )
 from sagemaker.hyperpod.common.telemetry.constants import Feature
-from sagemaker.hyperpod.cli.commands.training_recipe import _init_training_job, _configure_dynamic_template, _validate_dynamic_template, _create_dynamic_template, _generate_dynamic_config_yaml
+from sagemaker.hyperpod.cli.commands.training_recipe import _init_training_job, _configure_dynamic_template, _create_dynamic_template
+from sagemaker.hyperpod.cli.recipe_utils import _validate_dynamic_template, _generate_dynamic_config_yaml
 
 
 @click.command("init")

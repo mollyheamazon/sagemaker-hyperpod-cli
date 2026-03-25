@@ -104,8 +104,6 @@ class HyperPodPytorchJob(_HyperPodPytorchJob):
             spec = template.get('spec', {})
             node_selector = spec.get('nodeSelector', {})
             instance_type = node_selector.get(INSTANCE_TYPE_LABEL) if node_selector else None
-            if not instance_type:
-                return None
 
             containers = spec.get('containers', [])
 
@@ -116,6 +114,16 @@ class HyperPodPytorchJob(_HyperPodPytorchJob):
             resources = container.get('resources', {})
             requests = resources.get('requests', {})
             limits = resources.get('limits', {})
+
+            # Check if accelerators are specified without instance_type
+            accel_keys = ['accelerators', NVIDIA_RESOURCE_KEY, NEURON_RESOURCE_KEY]
+            has_accelerators = any(requests.get(k) and str(requests.get(k)) != "0" for k in accel_keys)
+            has_accelerators_limit = any(limits.get(k) and str(limits.get(k)) != "0" for k in accel_keys)
+            if not instance_type and (has_accelerators or has_accelerators_limit):
+                raise ValueError("--instance-type is required when specifying accelerator resources")
+
+            if not instance_type:
+                return None
 
             accelerators = None
             if requests.get('accelerators'):

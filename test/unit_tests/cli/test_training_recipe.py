@@ -1027,26 +1027,26 @@ class TestFetchRecipeFromHubModelIdFormats:
 
 
 class TestWarnIfInstanceTypeUnavailable:
-    @patch('sagemaker.hyperpod.cli.commands.training_recipe.client')
-    @patch('sagemaker.hyperpod.cli.commands.training_recipe.config')
-    def test_warns_when_instance_type_missing(self, mock_k8s_config, mock_k8s_client):
+    def test_warns_when_instance_type_missing(self):
         from sagemaker.hyperpod.cli.commands.training_recipe import _warn_if_instance_type_unavailable
         node = MagicMock()
         node.metadata.labels = {"node.kubernetes.io/instance-type": "ml.g5.8xlarge"}
-        mock_k8s_client.CoreV1Api.return_value.list_node.return_value.items = [node]
-        with patch('sagemaker.hyperpod.cli.commands.training_recipe.click.secho') as mock_secho:
+        with patch('sagemaker.hyperpod.cli.commands.training_recipe.config') as mock_cfg, \
+             patch('sagemaker.hyperpod.cli.commands.training_recipe.client') as mock_k8s_client, \
+             patch('sagemaker.hyperpod.cli.commands.training_recipe.click.secho') as mock_secho:
+            mock_k8s_client.CoreV1Api.return_value.list_node.return_value.items = [node]
             _warn_if_instance_type_unavailable("ml.p5.48xlarge")
             mock_secho.assert_called_once()
             assert "ml.p5.48xlarge" in mock_secho.call_args[0][0]
 
-    @patch('sagemaker.hyperpod.cli.commands.training_recipe.client')
-    @patch('sagemaker.hyperpod.cli.commands.training_recipe.config')
-    def test_silent_when_instance_type_present(self, mock_k8s_config, mock_k8s_client):
+    def test_silent_when_instance_type_present(self):
         from sagemaker.hyperpod.cli.commands.training_recipe import _warn_if_instance_type_unavailable
         node = MagicMock()
         node.metadata.labels = {"node.kubernetes.io/instance-type": "ml.g5.8xlarge"}
-        mock_k8s_client.CoreV1Api.return_value.list_node.return_value.items = [node]
-        with patch('sagemaker.hyperpod.cli.commands.training_recipe.click.secho') as mock_secho:
+        with patch('sagemaker.hyperpod.cli.commands.training_recipe.config'), \
+             patch('sagemaker.hyperpod.cli.commands.training_recipe.client') as mock_k8s_client, \
+             patch('sagemaker.hyperpod.cli.commands.training_recipe.click.secho') as mock_secho:
+            mock_k8s_client.CoreV1Api.return_value.list_node.return_value.items = [node]
             _warn_if_instance_type_unavailable("ml.g5.8xlarge")
             mock_secho.assert_not_called()
 
@@ -1054,5 +1054,4 @@ class TestWarnIfInstanceTypeUnavailable:
         from sagemaker.hyperpod.cli.commands.training_recipe import _warn_if_instance_type_unavailable
         with patch('sagemaker.hyperpod.cli.commands.training_recipe.config') as mock_cfg:
             mock_cfg.load_kube_config.side_effect = Exception("no kubeconfig")
-            # Should not raise
             _warn_if_instance_type_unavailable("ml.p5.48xlarge")

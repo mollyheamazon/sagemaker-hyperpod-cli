@@ -23,11 +23,11 @@ from sagemaker.hyperpod.common.telemetry.telemetry_logging import _hyperpod_tele
 from sagemaker.hyperpod.common.cli_decorators import handle_cli_exceptions
 
 
-def _interactive_cluster_selection(sagemaker_client, model_id: str, job_type: str, technique: str = None):
+def _interactive_cluster_selection(sagemaker_client, model_id: str, job_type: str, technique: str = None, is_huggingface: bool = False):
     """Interactive cluster and instance type selection."""
     try:
         # First get the recipe to find supported instance types
-        matching_recipe = _fetch_recipe_from_hub(sagemaker_client, model_id, job_type, technique, None)
+        matching_recipe = _fetch_recipe_from_hub(sagemaker_client, model_id, job_type, technique, None, is_huggingface=is_huggingface)
         supported_instance_types = set(matching_recipe.get('SupportedInstanceTypes', []))
 
         if not supported_instance_types:
@@ -78,8 +78,16 @@ def _interactive_cluster_selection(sagemaker_client, model_id: str, job_type: st
             return None, None
 
         if not clusters_data:
-            click.secho("❌ No compatible clusters found with supported instance types", fg="red")
-            click.secho(f"Supported instance types: {sorted(supported_instance_types)}", fg="yellow")
+            click.secho(
+                f"❌ No compatible clusters found. The '{technique or job_type}' recipe for "
+                f"'{model_id}' requires one of: {sorted(supported_instance_types)}",
+                fg="red",
+            )
+            click.secho(
+                f"   To skip cluster auto-detection, specify the instance type directly: "
+                f"--instance-type <instance-type>",
+                fg="yellow",
+            )
             return None, None
 
         # Display compatible clusters
@@ -105,12 +113,15 @@ def _interactive_cluster_selection(sagemaker_client, model_id: str, job_type: st
                 click.secho("❌ Operation cancelled", fg="red")
                 return None, None
                 
+    except ValueError as e:
+        click.secho(f"❌ {e}", fg="red")
+        return None, None
     except Exception as e:
         click.secho(f"❌ Error during cluster selection: {e}", fg="red")
         return None, None
 
 
-def _init_training_job(directory: str, job_type: str, model_id: str, technique: str, instance_type: str = None) -> bool:
+def _init_training_job(directory: str, job_type: str, model_id: str, technique: str, instance_type: str = None, is_huggingface: bool = False) -> bool:
     """Initialize training job configuration."""
     try:
         sagemaker_client = _get_sagemaker_client()
@@ -120,7 +131,7 @@ def _init_training_job(directory: str, job_type: str, model_id: str, technique: 
         cluster_name = None
         if not instance_type:
             cluster_name, instance_type = _interactive_cluster_selection(
-                sagemaker_client, model_id, job_type, technique
+                sagemaker_client, model_id, job_type, technique, is_huggingface=is_huggingface
             )
             if not instance_type:
                 return False
@@ -132,7 +143,7 @@ def _init_training_job(directory: str, job_type: str, model_id: str, technique: 
             set_cluster_context.main(["--cluster-name", cluster_name], standalone_mode=False)
         
         # Fetch and validate recipe
-        matching_recipe = _fetch_recipe_from_hub(sagemaker_client, model_id, job_type, technique, instance_type)
+        matching_recipe = _fetch_recipe_from_hub(sagemaker_client, model_id, job_type, technique, instance_type, is_huggingface=is_huggingface)
         
         override_params_uri = matching_recipe.get('HpEksOverrideParamsS3Uri')
         k8s_template_uri = matching_recipe.get('HpEksPayloadTemplateS3Uri')
@@ -203,8 +214,7 @@ def _configure_dynamic_template(ctx, option, value, dir_path):
 def _warn_if_instance_type_unavailable(instance_type: str) -> None:
     """Warn if the requested instance type has no ready nodes in the current cluster."""
     try:
-        from kubernetes import client, config as k8s_config
-        k8s_config.load_kube_config()
+        config.load_kube_config()
         v1 = client.CoreV1Api()
         nodes = v1.list_node().items
         available = {
@@ -220,8 +230,8 @@ def _warn_if_instance_type_unavailable(instance_type: str) -> None:
                 f"   The job will be submitted but pods may remain Pending.",
                 fg="yellow"
             )
-    except Exception:
-        pass  # Don't block submission if check fails
+    except Exception as e:
+        click.secho(f"⚠️  Could not verify instance type availability: {e}", fg="yellow")
 
 
 def _create_dynamic_template(dir_path: Path, config_data: dict):

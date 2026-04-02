@@ -155,15 +155,15 @@ class TestSaveConfigYaml:
             'namespace': '[Required] Kubernetes namespace'
         }
         directory = '/test/dir'
-        mock_join.return_value = '/test/dir/config.yaml'
+        mock_join.side_effect = ['/test/dir/config.yaml', '/test/dir/.hyp']
         
         save_config_yaml(prefill, comment_map, directory)
         
         # Verify directory creation
         mock_makedirs.assert_called_once_with(directory, exist_ok=True)
         
-        # Verify file operations
-        mock_file.assert_called_once_with('/test/dir/config.yaml', 'w')
+        # Verify config.yaml was opened for writing
+        mock_file.assert_any_call('/test/dir/config.yaml', 'w')
         
         # Verify content written
         written_calls = mock_file().write.call_args_list
@@ -211,7 +211,7 @@ namespace: test-namespace
             'hyp-cluster-stack': create_mock_template(CFN)
         }
         
-        with patch('pathlib.Path.is_file', return_value=True), \
+        with patch('pathlib.Path.is_file', lambda self: self.name == 'config.yaml'), \
              patch('pathlib.Path.read_text', return_value=config_content), \
              patch('sagemaker.hyperpod.cli.init_utils.TEMPLATES', mock_templates):
             
@@ -233,7 +233,7 @@ namespace: test-namespace
             'hyp-cluster-stack': create_mock_template(CFN)
         }
         
-        with patch('pathlib.Path.is_file', return_value=True), \
+        with patch('pathlib.Path.is_file', lambda self: self.name == 'config.yaml'), \
              patch('pathlib.Path.read_text', return_value=config_content), \
              patch('sagemaker.hyperpod.cli.init_utils.TEMPLATES', mock_templates):
             
@@ -733,7 +733,7 @@ namespace: test-namespace
             'hyp-cluster-stack': create_mock_template(CFN)
         }
         
-        with patch('pathlib.Path.is_file', return_value=True), \
+        with patch('pathlib.Path.is_file', lambda self: self.name == 'config.yaml'), \
              patch('pathlib.Path.read_text', return_value=config_content), \
              patch('sagemaker.hyperpod.cli.init_utils.TEMPLATES', mock_templates), \
              patch('sagemaker.hyperpod.cluster_management.hp_cluster_stack.HpClusterStack') as mock_cluster_stack:

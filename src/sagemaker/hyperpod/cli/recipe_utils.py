@@ -1,6 +1,7 @@
 """Reusable utilities for recipe job operations."""
 
 import json
+import re
 import yaml
 import click
 import boto3
@@ -11,6 +12,18 @@ from pathlib import Path
 from typing import Dict, Any, Tuple, Optional
 from sagemaker.hyperpod.cli.init_utils import load_dynamic_schema
 from sagemaker.hyperpod.cli.type_handler_utils import is_undefined_value
+
+_KIND_PLURALS = {
+    "ingress": "ingresses",
+    "networkpolicy": "networkpolicies",
+    "storageclass": "storageclasses",
+    "clusterrole": "clusterroles",
+    "clusterrolebinding": "clusterrolebindings",
+}
+
+def _kind_to_plural(kind: str) -> str:
+    k = kind.lower()
+    return _KIND_PLURALS.get(k, k + 's')
 
 
 import re
@@ -102,18 +115,18 @@ def _resolve_huggingface_model_id(sagemaker_client, hf_model_id: str) -> str:
     )
 
 
-def _fetch_recipe_from_hub(sagemaker_client, model_id: str, job_type: str, technique: str = None, instance_type: str = None) -> Dict[str, Any]:
+def _fetch_recipe_from_hub(sagemaker_client, model_id: str, job_type: str, technique: str = None, instance_type: str = None, is_huggingface: bool = False) -> Dict[str, Any]:
     """Fetch and validate recipe from SageMaker Hub.
 
     Supports three model_id formats:
-    - JumpStart model ID: meta-textgeneration-llama-3-2-1b
-    - HuggingFace model ID: meta-llama/Llama-3.1-8B-Instruct (resolved dynamically via search)
-    - Hub Content ARN: arn:aws:sagemaker:... (private or public hub)
+    - JumpStart model ID via --model-id (e.g. meta-textgeneration-llama-3-2-1b)
+    - HuggingFace model ID via --huggingface-model-id (e.g. meta-llama/Llama-3.1-8B-Instruct)
+    - Hub Content ARN via --model-id (e.g. arn:aws:sagemaker:...)
     """
     if _is_hub_content_arn(model_id):
         hub_content_doc = _fetch_recipe_from_private_hub(sagemaker_client, model_id)
     else:
-        if '/' in model_id:
+        if is_huggingface:
             resolved_id = _resolve_huggingface_model_id(sagemaker_client, model_id)
         else:
             resolved_id = model_id
@@ -181,8 +194,8 @@ def _download_s3_json(s3_client, s3_uri: str) -> Dict[str, Any]:
 def _validate_and_convert_value(value: str, param_spec: Dict[str, Any]) -> Any:
     """Validate and convert a parameter value according to its specification."""
     param_type = param_spec.get('type', 'string')
-    min_val = param_spec.get('min')
-    max_val = param_spec.get('max')
+    min_val = param_spec.get('minimum') or param_spec.get('min')
+    max_val = param_spec.get('maximum') or param_spec.get('max')
     enum_vals = param_spec.get('enum')
     
     # Type conversion with better error messages
@@ -293,17 +306,16 @@ def _submit_k8s_resources(custom_api, rendered_yaml: str) -> None:
             else:
                 custom_api.create_namespaced_custom_object(
                     group='', version=api_version, namespace=namespace,
-                    plural=kind.lower() + 's', body=k8s_config)
+                    plural=_kind_to_plural(kind), body=k8s_config)
         else:
             if '/' in api_version:
                 group, version = api_version.split('/', 1)
             else:
                 group, version = '', api_version
-            
-            plural = kind.lower() + 's' if not kind.lower().endswith('s') else kind.lower()
+
             custom_api.create_namespaced_custom_object(
                 group=group, version=version, namespace=namespace,
-                plural=plural, body=k8s_config)
+                plural=_kind_to_plural(kind), body=k8s_config)
 
 
 def _render_k8s_template(template_content: str, config_data: Dict[str, Any]) -> str:
@@ -395,10 +407,10 @@ def _validate_dynamic_template(dir_path: Path) -> bool:
         
         # Constraint validation with improved messages
         if isinstance(value, (int, float)):
-            if "min" in field_spec and value < field_spec["min"]:
-                validation_errors.append(f"{key}: Value {value} is below the minimum allowed value of {field_spec['min']}")
-            if "max" in field_spec and value > field_spec["max"]:
-                validation_errors.append(f"{key}: Value {value} exceeds the maximum allowed value of {field_spec['max']}")
+            if "minimum" in field_spec and value < field_spec["minimum"]:
+                validation_errors.append(f"{key}: Value {value} is below the minimum allowed value of {field_spec['minimum']}")
+            if "maximum" in field_spec and value > field_spec["maximum"]:
+                validation_errors.append(f"{key}: Value {value} exceeds the maximum allowed value of {field_spec['maximum']}")
         
         if "enum" in field_spec and value not in field_spec["enum"]:
             validation_errors.append(f"{key}: Invalid option '{value}'. Please choose from: {', '.join(map(str, field_spec['enum']))}")
@@ -429,6 +441,9 @@ def _generate_dynamic_config_yaml(dir_path: Path, template: str, version: str = 
     config_path = dir_path / 'config.yaml'
     config_path.write_text(render_config_yaml(spec, header_comments=header))
 
+    lockfile = dir_path / ".hyp"
+    lockfile.write_text(template)
+
 
 def _update_config_field(config_path: Path, spec: Dict[str, Any], option: str, value: Any):
     """Update a single field in config.yaml for dynamic templates"""
@@ -454,9 +469,9 @@ def _update_config_field(config_path: Path, spec: Dict[str, Any], option: str, v
     
     updated = False
     new_lines = []
+    key_pattern = re.compile(r'^(\s*)' + re.escape(option) + r'\s*:')
     for line in lines:
-        if line.strip().startswith(f"{option}:"):
-            # Preserve comments and formatting, no quotes for strings
+        if not line.strip().startswith('#') and key_pattern.match(line):
             indent = len(line) - len(line.lstrip())
             new_lines.append(f"{' ' * indent}{option}: {converted_value}\n")
             updated = True

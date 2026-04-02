@@ -38,7 +38,7 @@ class TestInitTrainingJobCommands:
 
             assert result.exit_code == 0
             mock_init_training.assert_called_once_with(
-                temp_dir, 'hyp-recipe-job', 'test-model', 'SFT', 'ml.p4d.24xlarge'
+                temp_dir, 'hyp-recipe-job', 'test-model', 'SFT', 'ml.p4d.24xlarge', is_huggingface=False
             )
             assert "initialized successfully" in result.output
 
@@ -72,7 +72,7 @@ class TestInitTrainingJobCommands:
 
             assert result.exit_code == 0
             mock_init_training.assert_called_once_with(
-                temp_dir, 'hyp-recipe-job', 'test-model', 'SFT', None
+                temp_dir, 'hyp-recipe-job', 'test-model', 'SFT', None, is_huggingface=False
             )
 
     def test_init_recipe_job_missing_model_name(self):
@@ -86,7 +86,7 @@ class TestInitTrainingJobCommands:
             ])
 
             assert result.exit_code == 0
-            assert "--model-id is required" in result.output
+            assert "--model-id or --huggingface-model-id is required" in result.output
 
     @patch('sagemaker.hyperpod.cli.commands.init._init_training_job')
     def test_init_recipe_job_failure(self, mock_init_training):
@@ -104,6 +104,39 @@ class TestInitTrainingJobCommands:
 
             assert result.exit_code == 0
             assert "initialized successfully" not in result.output
+
+    @patch('sagemaker.hyperpod.cli.commands.init._init_training_job')
+    def test_init_recipe_job_with_huggingface_model_id(self, mock_init_training):
+        """Test init hyp-recipe-job with --huggingface-model-id flag"""
+        mock_init_training.return_value = True
+
+        runner = CliRunner()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = runner.invoke(init, [
+                'hyp-recipe-job', temp_dir,
+                '--huggingface-model-id', 'meta-llama/Llama-3.1-8B-Instruct',
+                '--technique', 'SFT',
+                '--instance-type', 'ml.p4d.24xlarge'
+            ])
+
+            assert result.exit_code == 0
+            mock_init_training.assert_called_once_with(
+                temp_dir, 'hyp-recipe-job', 'meta-llama/Llama-3.1-8B-Instruct', 'SFT', 'ml.p4d.24xlarge', is_huggingface=True
+            )
+
+    def test_init_recipe_job_both_model_id_flags_error(self):
+        """Test that providing both --model-id and --huggingface-model-id shows error"""
+        runner = CliRunner()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = runner.invoke(init, [
+                'hyp-recipe-job', temp_dir,
+                '--model-id', 'test-model',
+                '--huggingface-model-id', 'meta-llama/Llama-3.1-8B-Instruct',
+                '--technique', 'SFT',
+            ])
+
+            assert result.exit_code == 0
+            assert "Specify either --model-id or --huggingface-model-id, not both" in result.output
 
 
 class TestInitUtilsChanges:

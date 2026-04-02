@@ -40,7 +40,8 @@ from sagemaker.hyperpod.cli.recipe_utils import _validate_dynamic_template, _gen
 @click.argument("template", type=click.Choice(list(TEMPLATES.keys())))
 @click.argument("directory", type=click.Path(file_okay=False), default=".")
 @click.option("--version", "-v", default=None, help="Schema version")
-@click.option("--model-id", hidden=True, help="Model ID - supports JumpStart format (e.g. meta-textgeneration-llama-3-2-1b) or HuggingFace format (e.g. meta-llama/Llama-2-7b)")
+@click.option("--model-id", hidden=True, help="JumpStart model ID (e.g. meta-textgeneration-llama-3-2-1b)")
+@click.option("--huggingface-model-id", hidden=True, help="HuggingFace model ID (e.g. meta-llama/Llama-2-7b)")
 @click.option("--technique", hidden=True, help="Customization technique (for hyp-recipe-job only)")
 @click.option("--instance-type", hidden=True, help="Instance type (optional - if not provided, interactive cluster selection will be used)")
 @_hyperpod_telemetry_emitter(Feature.HYPERPOD_CLI, "init_template_cli")
@@ -49,6 +50,7 @@ def init(
     directory: str,
     version: str,
     model_id: str,
+    huggingface_model_id: str,
     technique: str,
     instance_type: str,
 ):
@@ -80,7 +82,8 @@ def init(
     For hyp-recipe-job, the following options are available:
 
     \b
-      --model-id       JumpStart model ID or HuggingFace model ID (required)
+      --model-id              JumpStart model ID (required, or use --huggingface-model-id)
+      --huggingface-model-id  HuggingFace model ID (required, or use --model-id)
       --technique      Fine-tuning: SFT, DPO, RLAIF, RLVR, CPT, PPO
                        Evaluation: deterministic, LLMAJ (required)
       --instance-type  Instance type to use. If not provided, an interactive
@@ -132,14 +135,18 @@ def init(
 
     # Handle dynamic job templates after validation
     if template in ["hyp-recipe-job"]:
-        if not model_id:
-            click.secho(f"❌ --model-id is required for {template}", fg="red")
+        if not model_id and not huggingface_model_id:
+            click.secho(f"❌ --model-id or --huggingface-model-id is required for {template}", fg="red")
+            return
+        if model_id and huggingface_model_id:
+            click.secho("❌ Specify either --model-id or --huggingface-model-id, not both", fg="red")
             return
         if not technique:
             click.secho(f"❌ --technique is required for {template} (e.g. SFT, DPO, deterministic, LLMAJ)", fg="red")
             return
-        
-        if _init_training_job(directory, template, model_id, technique, instance_type):
+
+        resolved_model_id = huggingface_model_id if huggingface_model_id else model_id
+        if _init_training_job(directory, template, resolved_model_id, technique, instance_type, is_huggingface=bool(huggingface_model_id)):
             click.secho(f"✔️ {template.replace('-', ' ').title()} initialized successfully", fg="green")
             click.secho("📄 Created: config.yaml, k8s.jinja", fg="green")
         return

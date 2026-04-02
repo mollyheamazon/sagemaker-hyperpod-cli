@@ -1019,7 +1019,7 @@ class TestFetchRecipeFromHubModelIdFormats:
             }]
         }
         mock_client.describe_hub_content.return_value = self._hub_doc()
-        _fetch_recipe_from_hub(mock_client, "meta-llama/Llama-3.1-8B-Instruct", "hyp-recipe-job", "SFT")
+        _fetch_recipe_from_hub(mock_client, "meta-llama/Llama-3.1-8B-Instruct", "hyp-recipe-job", "SFT", is_huggingface=True)
         mock_client.describe_hub_content.assert_called_once_with(
             HubName="SageMakerPublicHub", HubContentType="Model",
             HubContentName="meta-textgeneration-llama-3-1-8b-instruct"

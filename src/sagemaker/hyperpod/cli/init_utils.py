@@ -389,7 +389,12 @@ def save_config_yaml(prefill: dict, comment_map: dict, directory: str):
 
             val = prefill.get(key)
             handler = _get_handler_for_field(template, key, version=prefill.get('version'))
-            handler['write_to_yaml'](key, handler['from_dicts'](val) if val is not None else val, f)    
+            handler['write_to_yaml'](key, handler['from_dicts'](val) if val is not None else val, f)
+
+    # Write lockfile so the template cannot be silently changed by editing config.yaml
+    lockfile = os.path.join(directory, ".hyp")
+    with open(lockfile, 'w') as f:
+        f.write(template)
 
 
 def load_config(dir_path: Path = None) -> Tuple[dict, str, str]:
@@ -438,7 +443,19 @@ def load_config(dir_path: Path = None) -> Tuple[dict, str, str]:
     if not template or template not in TEMPLATES:
         click.secho(f"❌  Unknown template '{template}' in config.yaml", fg="red")
         sys.exit(1)
-        
+
+    # Check lockfile to detect if the template comment was manually changed
+    lockfile = dir_path / ".hyp"
+    if lockfile.is_file():
+        locked_template = lockfile.read_text().strip()
+        if locked_template != template:
+            click.secho(
+                f"❌  Template mismatch: config.yaml says '{template}' but this directory was initialized with '{locked_template}'. "
+                f"Do not edit the '# template:' line in config.yaml.",
+                fg="red",
+            )
+            sys.exit(1)
+
     return data, template, version
 
 

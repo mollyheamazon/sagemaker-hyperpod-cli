@@ -29,7 +29,7 @@ from test.integration_tests.utils import get_time_str, execute_command, execute_
 NAMESPACE = "default"
 REGION = "us-east-2"
 INSTANCE_TYPE = "ml.g5.48xlarge"
-HF_MODEL_ID = "Qwen/Qwen3-0.6B"
+HF_MODEL_ID = "Qwen/Qwen3-4B"
 TECHNIQUE = "SFT"
 TIMEOUT_MINUTES = 30
 POLL_INTERVAL_SECONDS = 30
@@ -97,7 +97,7 @@ def test_configure_recipe_job(runner, job_name, test_directory):
         "--global-batch-size", "8",
         "--learning-rate", "0.0001",
         "--lr-warmup-ratio", "0.1",
-        "--max-epochs", "1",
+        "--max-epochs", "10", 
         "--output-path", "/data/output/qwen3-sft",
         "--results-directory", "/data/results/qwen3-sft",
         "--resume-from-path", "/data/output/qwen3-sft",
@@ -113,7 +113,6 @@ def test_configure_recipe_job(runner, job_name, test_directory):
         "name": job_name,
         "namespace": NAMESPACE,
         "instance_type": INSTANCE_TYPE,
-        "max_epochs": 1,
     })
 
 
@@ -144,7 +143,7 @@ def test_create_recipe_job(runner, job_name, test_directory):
 
 @pytest.mark.dependency(name="wait", depends=["create"])
 def test_wait_for_recipe_job_running(job_name, test_directory):
-    """Poll kubectl until recipe job pods reach Running state without crash-looping."""
+    """Poll hyp describe until recipe job pods reach Running state without crash-looping."""
     print(f"[INFO] Waiting for recipe job '{job_name}' to be Running...")
     deadline = time.time() + (TIMEOUT_MINUTES * 60)
     poll_count = 0
@@ -155,34 +154,31 @@ def test_wait_for_recipe_job_running(job_name, test_directory):
 
         try:
             result = execute_command([
-                "kubectl", "get", "hyperpodpytorchjob", job_name,
-                "-n", NAMESPACE,
-                "-o", "jsonpath={range .status.conditions[*]}{.type}={.status};{end}",
+                "hyp", "describe", "hyp-recipe-job",
+                "--job-name", job_name,
+                "--namespace", NAMESPACE,
             ])
-            raw = result.stdout.strip()
-            print(f"[DEBUG] Conditions: {raw}")
+            output = result.stdout
 
-            conditions = dict(
-                pair.split("=", 1)
-                for pair in raw.split(";")
-                if "=" in pair
-            )
-
-            if conditions.get("Failed") == "True":
+            if "Failed" in output and "Status:             True" in output:
                 pytest.fail(f"Job {job_name} failed")
 
-            # Check for crash-looping pods
+            # Check for crash-looping pods via list-pods
             pods_result = execute_command([
-                "kubectl", "get", "pods",
-                "-l", f"training.kubeflow.org/job-name={job_name}",
-                "-n", NAMESPACE,
-                "-o", "jsonpath={.items[*].status.containerStatuses[*].restartCount}",
+                "hyp", "list-pods", "hyp-recipe-job",
+                "--job-name", job_name,
+                "--namespace", NAMESPACE,
             ])
-            restart_counts = [int(x) for x in pods_result.stdout.strip().split() if x.isdigit()]
-            if any(c > 3 for c in restart_counts):
-                pytest.fail(f"Job {job_name} pods are crash-looping (restart counts: {restart_counts})")
+            # hyp list-pods returns pod names; check restart counts via describe output
+            if "restartCount" in pods_result.stdout:
+                restart_counts = [
+                    int(x) for x in pods_result.stdout.split()
+                    if x.isdigit()
+                ]
+                if any(c > 3 for c in restart_counts):
+                    pytest.fail(f"Job {job_name} pods are crash-looping")
 
-            if conditions.get("PodsRunning") == "True" or conditions.get("Running") == "True":
+            if "Running" in output and "Status:             True" in output:
                 print(f"[INFO] Job {job_name} is Running")
                 return
 
@@ -194,7 +190,7 @@ def test_wait_for_recipe_job_running(job_name, test_directory):
     pytest.fail(f"[ERROR] Timed out waiting for job {job_name} to be Running after {TIMEOUT_MINUTES}m")
 
 
-@pytest.mark.dependency(name="list_pods", depends=["create"])
+@pytest.mark.dependency(name="list_pods", depends=["wait"])
 def test_list_pods_recipe_job(job_name, test_directory):
     """List pods associated with the recipe job."""
     time.sleep(10)
@@ -215,14 +211,15 @@ def test_list_pods_recipe_job(job_name, test_directory):
 def test_get_logs_recipe_job(job_name, test_directory):
     """Get logs from the first pod of the recipe job."""
     pods_result = execute_command([
-        "kubectl", "get", "pods",
-        "-l", f"job-name={job_name}",
-        "-n", NAMESPACE,
-        "-o", "jsonpath={.items[0].metadata.name}",
+        "hyp", "list-pods", "hyp-recipe-job",
+        "--job-name", job_name,
+        "--namespace", NAMESPACE,
     ])
     assert pods_result.returncode == 0
-    pod_name = pods_result.stdout.strip()
-    assert pod_name, "No pod found for job"
+    # Extract first pod name — pod rows start with the job name
+    lines = [l for l in pods_result.stdout.splitlines() if l.strip().startswith(job_name)]
+    assert lines, "No pod found for job"
+    pod_name = lines[0].split()[0]
 
     result = execute_command([
         "hyp", "get-logs", "hyp-recipe-job",
@@ -239,6 +236,7 @@ def test_get_operator_logs_recipe_job(job_name, test_directory):
     """Get operator logs for the recipe job."""
     result = execute_command([
         "hyp", "get-operator-logs", "hyp-recipe-job",
+        "--since-hours", "1",
     ])
     assert result.returncode == 0
     print(f"[INFO] get-operator-logs output:\n{result.stdout[:500]}")

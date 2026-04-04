@@ -275,6 +275,27 @@ def _create_dynamic_template(dir_path: Path, config_data: dict):
     except (FileNotFoundError, ValueError) as e:
         click.secho(f"❌ {e}", fg="red")
         sys.exit(1)
+    except AttributeError as e:
+        if "getheaders" in str(e):
+            # urllib3 compatibility issue — verify whether submission actually succeeded
+            resource_name = config_data.get('name', 'unknown')
+            namespace = config_data.get('namespace', 'default')
+            try:
+                custom_api = _get_k8s_custom_client()
+                custom_api.get_namespaced_custom_object(
+                    group="sagemaker.amazonaws.com",
+                    version="v1",
+                    namespace=namespace,
+                    plural="hyperpodpytorchjobs",
+                    name=resource_name,
+                )
+                click.secho("✔️ Successfully submitted to Kubernetes", fg="green")
+            except Exception:
+                click.secho(f"❌ Submission failed. Please check your configuration and try again.", fg="red")
+                sys.exit(1)
+        else:
+            click.secho(f"❌ {e}", fg="red")
+            sys.exit(1)
     except Exception as e:
         # Use existing handle_exception for Kubernetes errors
         try:

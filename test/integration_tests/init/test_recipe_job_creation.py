@@ -69,9 +69,10 @@ def test_init_recipe_job(runner, job_name, test_directory):
     ], catch_exceptions=False)
 
     assert_command_succeeded(result)
-    assert Path("config.yaml").exists()
-    assert Path(".override_spec.json").exists()
-    assert Path("k8s.jinja").exists()
+    base = Path(test_directory)
+    assert (base / "config.yaml").exists(), f"config.yaml not found in {test_directory}. Output: {result.output}"
+    assert (base / ".override_spec.json").exists(), f".override_spec.json not found in {test_directory}"
+    assert (base / "k8s.jinja").exists(), f"k8s.jinja not found in {test_directory}"
 
 
 @pytest.mark.dependency(name="configure", depends=["init"])
@@ -109,7 +110,7 @@ def test_configure_recipe_job(runner, job_name, test_directory):
     ], catch_exceptions=False)
 
     assert_command_succeeded(result)
-    assert_config_values(".", {
+    assert_config_values(test_directory, {
         "name": job_name,
         "namespace": NAMESPACE,
         "instance_type": INSTANCE_TYPE,
@@ -132,7 +133,7 @@ def test_create_recipe_job(runner, job_name, test_directory):
     assert_command_succeeded(result)
 
     # Verify run directory was created with rendered k8s.yaml
-    run_dir = get_most_recent_run_directory(".")
+    run_dir = get_most_recent_run_directory(test_directory)
     assert (run_dir / "k8s.yaml").exists()
     assert (run_dir / "config.yaml").exists()
 

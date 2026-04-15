@@ -1,4 +1,5 @@
-from jinja2 import Template
+from concurrent.futures import ThreadPoolExecutor
+import threading
 from datetime import datetime
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
@@ -26,7 +27,6 @@ from sagemaker.hyperpod.common.cli_decorators import handle_cli_exceptions
 def _interactive_cluster_selection(sagemaker_client, model_id: str, job_type: str, technique: str = None, is_huggingface: bool = False):
     """Interactive cluster and instance type selection."""
     try:
-        # First get the recipe to find supported instance types
         matching_recipe = _fetch_recipe_from_hub(sagemaker_client, model_id, job_type, technique, None, is_huggingface=is_huggingface)
         supported_instance_types = set(matching_recipe.get('SupportedInstanceTypes', []))
 
@@ -38,81 +38,118 @@ def _interactive_cluster_selection(sagemaker_client, model_id: str, job_type: st
 
         try:
             from sagemaker.hyperpod.cli.commands.cluster import _get_hyperpod_clusters
+            from sagemaker.hyperpod.common.utils import get_current_cluster
 
             cluster_names = _get_hyperpod_clusters(sagemaker_client)
-
             if not cluster_names:
                 click.secho("❌ No HyperPod clusters found", fg="red")
                 return None, None
 
-            # Query actual cluster details
-            clusters_data = []
-            for cluster_name in cluster_names:
+            # Build {cluster_name: [(instance_type, node_count), ...]} for compatible types only
+            clusters_map: dict = {}
+            lock = threading.Lock()
+
+            def _fetch_cluster(cluster_name: str):
                 try:
                     cluster_response = sagemaker_client.describe_cluster(ClusterName=cluster_name)
-                    instance_groups = cluster_response.get('InstanceGroups', [])
-
-                    # Check all instance groups — a cluster may have CPU head + GPU worker groups
-                    for group in instance_groups:
-                        instance_type = group.get('InstanceType', 'Unknown')
-                        current_count = group.get('CurrentCount', 0)
-                        if instance_type in supported_instance_types:
-                            clusters_data.append({
-                                'Cluster': cluster_name,
-                                'InstanceType': instance_type,
-                                'TotalNodes': current_count,
-                            })
-
+                    compatible = [
+                        (g.get('InstanceType'), g.get('CurrentCount', 0))
+                        for g in cluster_response.get('InstanceGroups', [])
+                        if g.get('InstanceType') in supported_instance_types
+                    ]
+                    if compatible:
+                        with lock:
+                            clusters_map[cluster_name] = compatible
                 except Exception as e:
                     click.secho(f"⚠️ Warning: Could not get details for cluster {cluster_name}: {e}", fg="yellow")
-                    continue
-            
-            if not clusters_data:
+
+            with ThreadPoolExecutor(max_workers=min(len(cluster_names), 10)) as executor:
+                list(executor.map(_fetch_cluster, cluster_names))
+
+            if not clusters_map:
                 click.secho("❌ No cluster details could be retrieved", fg="red")
                 return None, None
-                
-            click.secho(f"✔️ Found {len(clusters_data)} clusters with details", fg="green")
-            
+
         except Exception as e:
             click.secho(f"❌ Error fetching clusters: {e}", fg="red")
             return None, None
 
-        if not clusters_data:
+        if not clusters_map:
             click.secho(
                 f"❌ No compatible clusters found. The '{technique or job_type}' recipe for "
                 f"'{model_id}' requires one of: {sorted(supported_instance_types)}",
                 fg="red",
             )
             click.secho(
-                f"   To skip cluster auto-detection, specify the instance type directly: "
-                f"--instance-type <instance-type>",
+                "   To skip cluster auto-detection, specify the instance type directly: --instance-type <instance-type>",
                 fg="yellow",
             )
             return None, None
 
-        # Display compatible clusters
-        click.secho("\n📋 Compatible clusters found:", fg="green")
-        click.secho("-" * 80, fg="blue")
-        for i, cluster in enumerate(clusters_data, 1):
-            click.secho(f"{i}. Cluster: {cluster['Cluster']}", fg="cyan")
-            click.secho(f"   Instance Type: {cluster['InstanceType']}", fg="white")
-            click.secho(f"   Total Nodes: {cluster['TotalNodes']}", fg="white")
-            click.secho("")
+        # Detect current cluster context
+        current_cluster = None
+        try:
+            current_cluster = get_current_cluster()
+        except Exception:
+            pass
 
-        # Get user selection
+        def _prompt_instance_type(cluster_name: str) -> str | None:
+            instance_types = clusters_map[cluster_name]
+            click.secho(f"\n📋 Compatible instance types for {cluster_name}:", fg="green")
+            for i, (itype, nodes) in enumerate(instance_types, 1):
+                click.secho(f"  {i}. {itype:<22} ({nodes} nodes)", fg="white")
+            while True:
+                try:
+                    choice = click.prompt(f"Select an instance type (1-{len(instance_types)})", type=int)
+                    if 1 <= choice <= len(instance_types):
+                        return instance_types[choice - 1][0]
+                    click.secho(f"❌ Please enter a number between 1 and {len(instance_types)}", fg="red")
+                except (ValueError, click.Abort):
+                    click.secho("❌ Operation cancelled", fg="red")
+                    return None
+
+        # If current context cluster is compatible, offer it as default
+        if current_cluster and current_cluster in clusters_map:
+            click.secho(f"\nCurrent cluster context: {current_cluster}", fg="cyan")
+            instance_type = _prompt_instance_type(current_cluster)
+            if instance_type is None:
+                return None, None
+            # Ask if they want to use a different cluster
+            try:
+                use_different = click.confirm("Use a different cluster?", default=False)
+            except click.Abort:
+                click.secho("❌ Operation cancelled", fg="red")
+                return None, None
+            if not use_different:
+                click.secho(f"✔️ Selected: {current_cluster} ({instance_type})", fg="green")
+                return current_cluster, instance_type
+
+        # Full cluster selection
+        cluster_list = list(clusters_map.keys())
+        click.secho(f"\n📋 Compatible clusters ({len(cluster_list)} found):", fg="green")
+        click.secho("-" * 80, fg="blue")
+        for i, name in enumerate(cluster_list, 1):
+            types_summary = ", ".join(f"{t} ({n} nodes)" for t, n in clusters_map[name])
+            click.secho(f"{i}. {name:<40} {types_summary}", fg="cyan")
+
         while True:
             try:
-                choice = click.prompt(f"Select a cluster (1-{len(clusters_data)})", type=int)
-                if 1 <= choice <= len(clusters_data):
-                    selected = clusters_data[choice - 1]
-                    click.secho(f"✔️ Selected: {selected['Cluster']} ({selected['InstanceType']})", fg="green")
-                    return selected['Cluster'], selected['InstanceType']
-                else:
-                    click.secho(f"❌ Please enter a number between 1 and {len(clusters_data)}", fg="red")
+                choice = click.prompt(f"\nSelect a cluster (1-{len(cluster_list)})", type=int)
+                if 1 <= choice <= len(cluster_list):
+                    selected_cluster = cluster_list[choice - 1]
+                    break
+                click.secho(f"❌ Please enter a number between 1 and {len(cluster_list)}", fg="red")
             except (ValueError, click.Abort):
                 click.secho("❌ Operation cancelled", fg="red")
                 return None, None
-                
+
+        instance_type = _prompt_instance_type(selected_cluster)
+        if instance_type is None:
+            return None, None
+
+        click.secho(f"✔️ Selected: {selected_cluster} ({instance_type})", fg="green")
+        return selected_cluster, instance_type
+
     except ValueError as e:
         click.secho(f"❌ {e}", fg="red")
         return None, None
@@ -275,29 +312,7 @@ def _create_dynamic_template(dir_path: Path, config_data: dict):
     except (FileNotFoundError, ValueError) as e:
         click.secho(f"❌ {e}", fg="red")
         sys.exit(1)
-    except AttributeError as e:
-        if "getheaders" in str(e):
-            # urllib3 compatibility issue — verify whether submission actually succeeded
-            resource_name = config_data.get('name', 'unknown')
-            namespace = config_data.get('namespace', 'default')
-            try:
-                custom_api = _get_k8s_custom_client()
-                custom_api.get_namespaced_custom_object(
-                    group="sagemaker.amazonaws.com",
-                    version="v1",
-                    namespace=namespace,
-                    plural="hyperpodpytorchjobs",
-                    name=resource_name,
-                )
-                click.secho("✔️ Successfully submitted to Kubernetes", fg="green")
-            except Exception:
-                click.secho(f"❌ Submission failed. Please check your configuration and try again.", fg="red")
-                sys.exit(1)
-        else:
-            click.secho(f"❌ {e}", fg="red")
-            sys.exit(1)
     except Exception as e:
-        # Use existing handle_exception for Kubernetes errors
         try:
             resource_name = config_data.get('name', 'unknown')
             handle_exception(e, resource_name, 'default')

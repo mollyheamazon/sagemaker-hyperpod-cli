@@ -456,15 +456,24 @@ class HyperPodPytorchJob(_HyperPodPytorchJob):
             handle_exception(e, job_name, namespace)
 
     def _exec_command_on_pod(self, pod: str, command: List[str], container: Optional[str] = None):
-        return stream.stream(
-            client.CoreV1Api().connect_get_namespaced_pod_exec,
-            stderr=True,
-            stdout=True,
-            name=pod,
-            namespace=self.metadata.namespace,
-            command=command,
-            container=container
-        )
+        from kubernetes.client.exceptions import ApiException
+        try:
+            return stream.stream(
+                client.CoreV1Api().connect_get_namespaced_pod_exec,
+                stderr=True,
+                stdout=True,
+                name=pod,
+                namespace=self.metadata.namespace,
+                command=command,
+                container=container
+            )
+        except ApiException as e:
+            if e.status == 400 and "does not have a host assigned" in str(e.body):
+                raise RuntimeError(
+                    f"Cannot exec into pod '{pod}': pod is not running (no host assigned). "
+                    f"The job may have already completed or the pod is still pending."
+                ) from e
+            raise
 
 
     @classmethod
@@ -674,12 +683,14 @@ class HyperPodPytorchJob(_HyperPodPytorchJob):
             config.load_kube_config()
             v1 = client.CoreV1Api()
 
-            logs = v1.read_namespaced_pod_log(
+            response = v1.read_namespaced_pod_log(
                 name=pod_name,
                 namespace=self.metadata.namespace,
                 timestamps=True,
                 container=container,
+                _preload_content=False,
             )
+            logs = response.data.decode("utf-8")
             return logs
         except Exception as e:
             logger.error(f"Failed to get logs from pod {pod_name}!")

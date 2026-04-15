@@ -97,7 +97,7 @@ def test_configure_recipe_job(runner, job_name, test_directory):
         "--global-batch-size", "8",
         "--learning-rate", "0.0001",
         "--lr-warmup-ratio", "0.1",
-        "--max-epochs", "10", 
+        "--max-epochs", "20", 
         "--output-path", "/data/output/qwen3-sft",
         "--results-directory", "/data/results/qwen3-sft",
         "--resume-from-path", "/data/output/qwen3-sft",

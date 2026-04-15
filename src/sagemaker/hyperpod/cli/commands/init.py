@@ -94,6 +94,18 @@ def init(
     config_file = dir_path / "config.yaml"
     skip_readme = False
 
+    # Validate required params for hyp-recipe-job before any output
+    if template in ["hyp-recipe-job"]:
+        if not model_id and not huggingface_model_id:
+            click.secho(f"❌ --model-id or --huggingface-model-id is required for {template}", fg="red")
+            return
+        if model_id and huggingface_model_id:
+            click.secho("❌ Specify either --model-id or --huggingface-model-id, not both", fg="red")
+            return
+        if not technique:
+            click.secho(f"❌ --technique is required for {template} (e.g. SFT, DPO, deterministic, LLMAJ)", fg="red")
+            return
+
     # 1) Inspect existing config.yaml
     try:
         if config_file.is_file():
@@ -101,7 +113,7 @@ def init(
                 # Use load_config to properly read commented template
                 _, existing_template, _ = load_config(dir_path)
             except Exception as e:
-                click.echo("Could not parse existing config.yaml: %s", e)
+                click.secho(f"⚠️  Could not parse existing config.yaml: {e}", fg="yellow")
                 existing_template = None
 
             if existing_template == template:
@@ -123,7 +135,7 @@ def init(
         else:
             click.echo(f"Initializing new scaffold for '{template}'…")
     except Exception as e:
-        click.secho("💥  Initialization aborted due to error: %s", e, fg="red")
+        click.secho(f"💥  Initialization aborted due to error: {e}", fg="red")
         sys.exit(1)
 
     # 2) Ensure directory exists
@@ -133,18 +145,8 @@ def init(
         click.secho(f"❌  Could not create directory {dir_path}: {e}", fg="red")
         sys.exit(1)
 
-    # Handle dynamic job templates after validation
+    # Handle dynamic job templates
     if template in ["hyp-recipe-job"]:
-        if not model_id and not huggingface_model_id:
-            click.secho(f"❌ --model-id or --huggingface-model-id is required for {template}", fg="red")
-            return
-        if model_id and huggingface_model_id:
-            click.secho("❌ Specify either --model-id or --huggingface-model-id, not both", fg="red")
-            return
-        if not technique:
-            click.secho(f"❌ --technique is required for {template} (e.g. SFT, DPO, deterministic, LLMAJ)", fg="red")
-            return
-
         resolved_model_id = huggingface_model_id if huggingface_model_id else model_id
         if _init_training_job(directory, template, resolved_model_id, technique, instance_type, is_huggingface=bool(huggingface_model_id)):
             click.secho(f"✔️ {template.replace('-', ' ').title()} initialized successfully", fg="green")

@@ -307,7 +307,7 @@ def _create_dynamic_template(dir_path: Path, config_data: dict):
         custom_api = _get_k8s_custom_client()
         _submit_k8s_resources(custom_api, rendered)
         
-        click.secho("✔️ Successfully submitted to Kubernetes", fg="green")
+        click.secho("✔️ Successfully submitted to HyperPod", fg="green")
                 
     except (FileNotFoundError, ValueError) as e:
         click.secho(f"❌ {e}", fg="red")

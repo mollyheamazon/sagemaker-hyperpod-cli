@@ -126,7 +126,7 @@ metadata:
             
             # Verify success messages
             mock_secho.assert_any_call("✔️ Configuration validated successfully", fg="green")
-            mock_secho.assert_any_call("✔️ Successfully submitted to Kubernetes", fg="green")
+            mock_secho.assert_any_call("✔️ Successfully submitted to HyperPod", fg="green")
 
 
 class TestInitTrainingJob:
